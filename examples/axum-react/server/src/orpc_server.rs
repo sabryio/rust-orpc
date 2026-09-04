@@ -8,6 +8,7 @@
 //!   cargo run --bin orpc-server
 //!   (from examples/axum-react/server/)
 
+use axum::Router;
 use orpc_axum::AxumRouter;
 use orpc_core::{os, router, HttpMethod, OrpcError, Stream};
 use serde::{Deserialize, Serialize};
@@ -135,19 +136,19 @@ async fn main() {
         planets: Arc::new(sample_planets()),
     };
 
-    // The client expects routes under /rpc — route paths include the prefix.
+    // Define routes without /rpc prefix
     let app = router! {
 
         ping: os()
             .context::<AppContext>()
-            .route(HttpMethod::Post, "/rpc/ping")
+            .route(HttpMethod::Post, "/ping")
             .output::<String>()
             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
 
         planet: {
             list: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/rpc/planet/list")
+                .route(HttpMethod::Post, "/planet/list")
                 .output::<Vec<Planet>>()
                 .handler(|ctx, _: ()| async move {
                     Ok(ctx.planets.to_vec())
@@ -155,7 +156,7 @@ async fn main() {
 
             listPaginated: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/rpc/planet/list-paginated")
+                .route(HttpMethod::Post, "/planet/list-paginated")
                 .input::<ListPlanetsPaginatedInput>()
                 .output::<ListPlanetsPaginatedOutput>()
                 .handler(|ctx, input: ListPlanetsPaginatedInput| async move {
@@ -178,7 +179,7 @@ async fn main() {
 
             find: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/rpc/planet/find")
+                .route(HttpMethod::Post, "/planet/find")
                 .input::<FindPlanetInput>()
                 .output::<Planet>()
                 .handler(|ctx, input: FindPlanetInput| async move {
@@ -191,7 +192,7 @@ async fn main() {
 
             create: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/rpc/planet/create")
+                .route(HttpMethod::Post, "/planet/create")
                 .input::<CreatePlanetInput>()
                 .output::<Planet>()
                 .handler(|ctx, input: CreatePlanetInput| async move {
@@ -211,7 +212,7 @@ async fn main() {
 
         stream: os()
             .context::<AppContext>()
-            .route(HttpMethod::Post, "/rpc/stream")
+            .route(HttpMethod::Post, "/stream")
             .output::<Stream<StreamEvent>>()
             .handler(|_ctx, _: ()| async {
                 // Create a stream that emits 10 events, one per second
@@ -226,9 +227,9 @@ async fn main() {
                 Ok(stream)
             }),
 
-        streamAsync: os()
+        stream_async: os()
             .context::<AppContext>()
-            .route(HttpMethod::Post, "/rpc/stream-async")
+            .route(HttpMethod::Post, "/stream-async")
             .output::<Stream<StreamEvent>>()
             .handler(|_ctx, _: ()| async {
                 use async_stream::stream;
@@ -249,6 +250,9 @@ async fn main() {
     }
     .into_axum_router(ctx);
 
+    // Nest the orpc router at /rpc
+    let app = Router::new().nest("/rpc", app);
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
         .await
         .unwrap();
@@ -263,6 +267,44 @@ async fn main() {
     println!("   POST /rpc/stream-async       (SSE streaming)");
     println!();
     println!("   ⚠️  WebSocket (/ws) not yet supported");
+    println!();
+    println!("   Press Ctrl+C to shutdown");
 
-    axum::serve(listener, app).await.unwrap();
+    // Graceful shutdown on Ctrl+C
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+
+    println!("\n✨ Server shutdown complete");
+}
+
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            println!("\n🛑 Received Ctrl+C, shutting down gracefully...");
+        },
+        _ = terminate => {
+            println!("\n🛑 Received termination signal, shutting down gracefully...");
+        },
+    }
 }

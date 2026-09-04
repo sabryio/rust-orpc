@@ -6,7 +6,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use orpc_core::{os, HttpMethod};
+//! use orpc_core::{os, router, HttpMethod};
 //! use orpc_axum::AxumRouter;
 //!
 //! #[derive(Clone)]
@@ -14,14 +14,15 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let router = orpc_core::r()
-//!         .add("ping", os()
+//!     let app = router! {
+//!         ping: os()
 //!             .context::<AppContext>()
 //!             .route(HttpMethod::Get, "/ping")
 //!             .output::<String>()
-//!             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }));
+//!             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+//!     }
+//!     .into_axum_router(AppContext);
 //!
-//!     let app = router.into_axum_router(AppContext);
 //!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
 //!     axum::serve(listener, app).await.unwrap();
 //! }
@@ -180,7 +181,7 @@ impl IntoResponse for AxumError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orpc_core::{os, r, HttpMethod, ProcedureRegistry, Router};
+    use orpc_core::{os, router, HttpMethod, ProcedureRegistry, Router};
 
     #[derive(Clone)]
     struct TestContext {
@@ -206,24 +207,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_into_axum_router_registers_correct_methods() {
-        let router = r()
-            .add(
-                "ping",
-                os().context::<TestContext>()
-                    .route(HttpMethod::Get, "/ping")
-                    .output::<String>()
-                    .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
-            )
-            .add(
-                "create",
-                os().context::<TestContext>()
-                    .route(HttpMethod::Post, "/items")
-                    .output::<String>()
-                    .handler(|_ctx, _: ()| async { Ok("created".to_string()) }),
-            );
+        let router_inst = router! {
+            ping: os()
+                .context::<TestContext>()
+                .route(HttpMethod::Get, "/ping")
+                .output::<String>()
+                .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
+            create: os()
+                .context::<TestContext>()
+                .route(HttpMethod::Post, "/items")
+                .output::<String>()
+                .handler(|_ctx, _: ()| async { Ok("created".to_string()) })
+        };
 
-        // Should compile and build without panic
-        let _app = router.into_axum_router(TestContext {
+        let _app = router_inst.into_axum_router(TestContext {
             value: "test".to_string(),
         });
     }

@@ -25,7 +25,7 @@ pub trait Router<Ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{os, Procedure};
+    use crate::{os, route::HttpMethod, Procedure};
 
     #[derive(Clone)]
     struct TestContext {
@@ -55,6 +55,7 @@ mod tests {
         let router = PingRouter {
             ping: os()
                 .context::<TestContext>()
+                .route(HttpMethod::Get, "/ping")
                 .output::<String>()
                 .handler(|_ctx: TestContext, _: ()| async { Ok("pong".to_string()) }),
         };
@@ -96,11 +97,13 @@ mod tests {
         let router = NestedRouter {
             ping: os()
                 .context::<TestContext>()
+                .route(HttpMethod::Get, "/ping")
                 .output::<String>()
                 .handler(|_ctx: TestContext, _: ()| async { Ok("root pong".to_string()) }),
             nested: PingRouter {
                 ping: os()
                     .context::<TestContext>()
+                    .route(HttpMethod::Get, "/nested/ping")
                     .output::<String>()
                     .handler(|_ctx: TestContext, _: ()| async { Ok("nested pong".to_string()) }),
             },

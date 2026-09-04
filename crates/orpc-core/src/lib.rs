@@ -40,6 +40,9 @@ pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
 pub use route::{HttpMethod, RouteMetadata};
 pub use router::Router;
+
+// router_builder is internal — used by router! macro only
+#[doc(hidden)]
 pub use router_builder::{r, RouterBuilder};
 
 // Re-export procedural macro

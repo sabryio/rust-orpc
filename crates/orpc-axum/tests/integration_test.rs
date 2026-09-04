@@ -1,11 +1,11 @@
-//! Integration test: orpc router to Axum router conversion using RouteMetadata
+//! Integration test: orpc router to Axum router conversion using router! macro
 
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use orpc_axum::AxumRouter;
-use orpc_core::{os, r, HttpMethod, OrpcError};
+use orpc_core::{os, router, HttpMethod, OrpcError};
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
@@ -27,62 +27,42 @@ struct Planet {
 
 #[tokio::test]
 async fn test_into_axum_router() {
-    let planet = r()
-        .add(
-            "list",
-            os().context::<AppContext>()
+    let app = router! {
+        ping: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Get, "/ping")
+            .output::<String>()
+            .handler(|ctx: AppContext, _: ()| async move {
+                Ok(format!("{} pong", ctx.prefix))
+            }),
+
+        planet: {
+            list: os()
+                .context::<AppContext>()
                 .route(HttpMethod::Get, "/planet")
                 .output::<Vec<Planet>>()
                 .handler(|_ctx: AppContext, _: ()| async move {
                     Ok(vec![
-                        Planet {
-                            id: 1,
-                            name: "Earth".to_string(),
-                        },
-                        Planet {
-                            id: 2,
-                            name: "Mars".to_string(),
-                        },
+                        Planet { id: 1, name: "Earth".to_string() },
+                        Planet { id: 2, name: "Mars".to_string() },
                     ])
                 }),
-        )
-        .add(
-            "find",
-            os().context::<AppContext>()
+
+            find: os()
+                .context::<AppContext>()
                 .route(HttpMethod::Post, "/planet/find")
                 .input::<FindInput>()
                 .output::<Planet>()
                 .handler(|_ctx: AppContext, input: FindInput| async move {
                     match input.id {
-                        1 => Ok(Planet {
-                            id: 1,
-                            name: "Earth".to_string(),
-                        }),
-                        2 => Ok(Planet {
-                            id: 2,
-                            name: "Mars".to_string(),
-                        }),
-                        _ => Err(OrpcError::not_found(format!(
-                            "Planet {} not found",
-                            input.id
-                        ))),
+                        1 => Ok(Planet { id: 1, name: "Earth".to_string() }),
+                        2 => Ok(Planet { id: 2, name: "Mars".to_string() }),
+                        _ => Err(OrpcError::not_found(format!("Planet {} not found", input.id))),
                     }
-                }),
-        );
-
-    let api = r()
-        .add(
-            "ping",
-            os().context::<AppContext>()
-                .route(HttpMethod::Get, "/ping")
-                .output::<String>()
-                .handler(
-                    |ctx: AppContext, _: ()| async move { Ok(format!("{} pong", ctx.prefix)) },
-                ),
-        )
-        .nest("planet", planet);
-
-    let app = api.into_axum_router(AppContext {
+                })
+        }
+    }
+    .into_axum_router(AppContext {
         prefix: "test".to_string(),
     });
 
@@ -152,40 +132,33 @@ async fn test_into_axum_router() {
 
 #[tokio::test]
 async fn test_error_handling() {
-    let app = r()
-        .add(
-            "ping",
-            os().context::<AppContext>()
-                .route(HttpMethod::Get, "/ping")
-                .output::<String>()
-                .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
-        )
-        .nest(
-            "planet",
-            r().add(
-                "list",
-                os().context::<AppContext>()
-                    .route(HttpMethod::Get, "/planet")
-                    .output::<Vec<Planet>>()
-                    .handler(|_ctx: AppContext, _: ()| async { Ok(vec![]) }),
-            )
-            .add(
-                "find",
-                os().context::<AppContext>()
-                    .route(HttpMethod::Post, "/planet/find")
-                    .input::<FindInput>()
-                    .output::<Planet>()
-                    .handler(|_ctx: AppContext, input: FindInput| async move {
-                        Err(OrpcError::not_found(format!(
-                            "Planet {} not found",
-                            input.id
-                        )))
-                    }),
-            ),
-        )
-        .into_axum_router(AppContext {
-            prefix: "test".to_string(),
-        });
+    let app = router! {
+        ping: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Get, "/ping")
+            .output::<String>()
+            .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
+
+        planet: {
+            list: os()
+                .context::<AppContext>()
+                .route(HttpMethod::Get, "/planet")
+                .output::<Vec<Planet>>()
+                .handler(|_ctx: AppContext, _: ()| async { Ok(vec![]) }),
+
+            find: os()
+                .context::<AppContext>()
+                .route(HttpMethod::Post, "/planet/find")
+                .input::<FindInput>()
+                .output::<Planet>()
+                .handler(|_ctx: AppContext, input: FindInput| async move {
+                    Err(OrpcError::not_found(format!("Planet {} not found", input.id)))
+                })
+        }
+    }
+    .into_axum_router(AppContext {
+        prefix: "test".to_string(),
+    });
 
     let response = app
         .oneshot(
@@ -213,23 +186,20 @@ async fn test_error_handling() {
 
 #[tokio::test]
 async fn test_deep_nesting() {
-    let app = r()
-        .nest(
-            "api",
-            r().nest(
-                "v1",
-                r().add(
-                    "status",
-                    os().context::<AppContext>()
-                        .route(HttpMethod::Get, "/api/v1/status")
-                        .output::<String>()
-                        .handler(|_ctx: AppContext, _: ()| async { Ok("ok".to_string()) }),
-                ),
-            ),
-        )
-        .into_axum_router(AppContext {
-            prefix: "".to_string(),
-        });
+    let app = router! {
+        api: {
+            v1: {
+                status: os()
+                    .context::<AppContext>()
+                    .route(HttpMethod::Get, "/api/v1/status")
+                    .output::<String>()
+                    .handler(|_ctx: AppContext, _: ()| async { Ok("ok".to_string()) })
+            }
+        }
+    }
+    .into_axum_router(AppContext {
+        prefix: "".to_string(),
+    });
 
     let response = app
         .oneshot(

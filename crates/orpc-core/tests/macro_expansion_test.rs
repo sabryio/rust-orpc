@@ -207,17 +207,15 @@ async fn test_end_to_end_dispatch() {
 
 #[tokio::test]
 async fn test_macro_equivalence() {
-    use orpc_core::r as r_fn;
-
-    let manual_router = r_fn().add(
-        "ping",
-        os().context::<TestContext>()
+    let router_a = router! {
+        ping: os()
+            .context::<TestContext>()
             .route(HttpMethod::Get, "/ping")
             .output::<String>()
-            .handler(|ctx, _: ()| async move { Ok(ctx.value.clone()) }),
-    );
+            .handler(|ctx, _: ()| async move { Ok(ctx.value.clone()) })
+    };
 
-    let macro_router = router! {
+    let router_b = router! {
         ping: os()
             .context::<TestContext>()
             .route(HttpMethod::Get, "/ping")
@@ -226,10 +224,10 @@ async fn test_macro_equivalence() {
     };
 
     let mut manual_registry = ProcedureRegistry::new();
-    manual_router.register_procedures("", &mut manual_registry);
+    router_a.register_procedures("", &mut manual_registry);
 
     let mut macro_registry = ProcedureRegistry::new();
-    macro_router.register_procedures("", &mut macro_registry);
+    router_b.register_procedures("", &mut macro_registry);
 
     assert_eq!(manual_registry.len(), macro_registry.len());
     assert!(manual_registry.has("ping"));

@@ -1,51 +1,30 @@
-//! Fluent router builder — define routers without structs or trait impls.
+//! Internal router builder — used exclusively by the `router!` macro expansion.
 //!
-//! `RouterBuilder` is the Rust equivalent of TypeScript oRPC's plain-object
-//! router pattern. Instead of defining a struct and implementing `Router<Ctx>`,
-//! you compose procedures and nested routers inline.
+//! `RouterBuilder` and `r()` are not part of the public API. Users define
+//! routers via the `router!` macro, which expands to calls on this type.
 //!
-//! # Example
+//! # Example (via macro — the only public interface)
 //!
-//! ```rust
-//! use orpc_core::{os, r, OrpcError};
-//! use serde::{Deserialize, Serialize};
+//! ```rust,ignore
+//! use orpc_core::{os, router, HttpMethod};
 //!
 //! #[derive(Clone)]
-//! struct Ctx { name: String }
+//! struct Ctx;
 //!
-//! #[derive(Deserialize)]
-//! struct FindInput { id: i32 }
-//!
-//! #[derive(Serialize)]
-//! struct Planet { id: i32, name: String }
-//!
-//! let planet = r()
-//!     .add("list", os()
+//! let app = router! {
+//!     ping: os()
 //!         .context::<Ctx>()
-//!         .output::<Vec<Planet>>()
-//!         .handler(|_ctx, _: ()| async { Ok(vec![]) }))
-//!     .add("find", os()
-//!         .context::<Ctx>()
-//!         .input::<FindInput>()
-//!         .output::<Planet>()
-//!         .handler(|_ctx, input: FindInput| async move {
-//!             Ok(Planet { id: input.id, name: "Earth".to_string() })
-//!         }));
-//!
-//! let router = r()
-//!     .add("ping", os()
-//!         .context::<Ctx>()
+//!         .route(HttpMethod::Get, "/ping")
 //!         .output::<String>()
-//!         .handler(|ctx: Ctx, _: ()| async move { Ok(ctx.name) }))
-//!     .nest("planet", planet);
+//!         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+//! };
 //! ```
 
 use crate::{Procedure, ProcedureRegistry, Router};
 use std::marker::PhantomData;
 
 // ---------------------------------------------------------------------------
-// Internal entry trait — type-erased so procedures and nested routers can
-// live in the same Vec.
+// Internal entry trait
 // ---------------------------------------------------------------------------
 
 trait RouterEntry<Ctx>: Send + Sync
@@ -55,7 +34,6 @@ where
     fn register(&self, full_path: &str, registry: &mut ProcedureRegistry<Ctx>);
 }
 
-// A single procedure entry
 struct ProcEntry<Ctx, In, Out> {
     proc: Procedure<Ctx, In, Out>,
 }
@@ -71,7 +49,6 @@ where
     }
 }
 
-// A nested router entry
 struct NestEntry<Ctx> {
     inner: Box<dyn Router<Ctx> + Send + Sync>,
 }
@@ -86,14 +63,13 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// RouterBuilder — internal, used by router! macro expansion
 // ---------------------------------------------------------------------------
 
-/// Fluent builder for composing RPC routers without struct definitions.
+/// Internal fluent builder produced by the `router!` macro.
 ///
-/// # SRP: owns path→entry mapping only; dispatch is delegated to ProcedureRegistry
+/// Not part of the public API — use `router! { ... }` instead.
 pub struct RouterBuilder<Ctx> {
-    // Each entry is (key, type-erased entry)
     entries: Vec<(String, Box<dyn RouterEntry<Ctx>>)>,
     _phantom: PhantomData<Ctx>,
 }
@@ -102,7 +78,7 @@ impl<Ctx> RouterBuilder<Ctx>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
-    /// Creates an empty router builder.
+    #[doc(hidden)]
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -110,25 +86,7 @@ where
         }
     }
 
-    /// Adds a procedure at the given key.
-    ///
-    /// The key becomes the final path segment. Slashes are supported for
-    /// sub-paths within a single level, but prefer `.nest()` for grouping.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use orpc_core::{os, r};
-    ///
-    /// #[derive(Clone)]
-    /// struct Ctx;
-    ///
-    /// let router = r()
-    ///     .add("ping", os()
-    ///         .context::<Ctx>()
-    ///         .output::<String>()
-    ///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }));
-    /// ```
+    #[doc(hidden)]
     pub fn add<In, Out>(mut self, key: impl Into<String>, proc: Procedure<Ctx, In, Out>) -> Self
     where
         In: serde::de::DeserializeOwned + Send + 'static,
@@ -139,27 +97,7 @@ where
         self
     }
 
-    /// Nests another router under the given key prefix.
-    ///
-    /// All paths in `nested` are prefixed with `key/`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use orpc_core::{os, r};
-    ///
-    /// #[derive(Clone)]
-    /// struct Ctx;
-    ///
-    /// let planet = r()
-    ///     .add("list", os()
-    ///         .context::<Ctx>()
-    ///         .output::<String>()
-    ///         .handler(|_ctx, _: ()| async { Ok("[]".to_string()) }));
-    ///
-    /// let router = r().nest("planet", planet);
-    /// // Registers: "planet/list"
-    /// ```
+    #[doc(hidden)]
     pub fn nest(
         mut self,
         key: impl Into<String>,
@@ -200,23 +138,10 @@ where
     }
 }
 
-/// Shorthand entry point for `RouterBuilder::new()`, mirroring TypeScript's
-/// plain-object router pattern.
+/// Internal entry point used by `router!` macro expansion.
 ///
-/// # Example
-///
-/// ```rust
-/// use orpc_core::{os, r};
-///
-/// #[derive(Clone)]
-/// struct Ctx;
-///
-/// let router = r()
-///     .add("ping", os()
-///         .context::<Ctx>()
-///         .output::<String>()
-///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }));
-/// ```
+/// Not part of the public API — use `router! { ... }` instead.
+#[doc(hidden)]
 pub fn r<Ctx>() -> RouterBuilder<Ctx>
 where
     Ctx: Clone + Send + Sync + 'static,
@@ -225,7 +150,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — use router! macro, not r() directly
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -243,6 +168,8 @@ mod tests {
     struct Input {
         x: i32,
     }
+
+    // Internal tests still use r() directly since they test RouterBuilder itself.
 
     #[test]
     fn test_add_single_procedure() {

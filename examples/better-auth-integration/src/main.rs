@@ -26,9 +26,10 @@ use better_auth::{
     AuthConfig, BetterAuth,
 };
 use orpc_axum::AxumRouter;
-use orpc_core::{os, router, HttpMethod, OrpcError};
+use orpc_core::{os, router, HttpMethod, OrpcError, Stream};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use tokio_stream::StreamExt;
 use tower_http::cors::CorsLayer;
 
 // ===== Types =====
@@ -62,6 +63,12 @@ struct ListPlanetsPaginatedOutput {
     items: Vec<Planet>,
     #[serde(rename = "nextPageParam")]
     next_page_param: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct StreamEvent {
+    message: String,
+    count: u32,
 }
 
 // ===== Application Context =====
@@ -330,6 +337,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "email": user.email,
                     "name": user.name,
                 }))
+            }),
+
+        // Server-Sent Events streaming (public)
+        stream: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Post, "/stream")
+            .output::<Stream<StreamEvent>>()
+            .handler(|_ctx, _: ()| async {
+                // Create a stream that emits 10 events, one per second
+                let stream = tokio_stream::iter(0u32..)
+                    .throttle(Duration::from_secs(1))
+                    .take(10)
+                    .map(|count| StreamEvent {
+                        message: format!("Event #{count}"),
+                        count,
+                    });
+
+                Ok(stream)
+            }),
+
+        // Async stream example (public)
+        stream_async: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Post, "/stream-async")
+            .output::<Stream<StreamEvent>>()
+            .handler(|_ctx, _: ()| async {
+                use async_stream::stream;
+
+                // Create an async stream using the async_stream crate
+                let s = stream! {
+                    for i in 0u32..15 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        yield StreamEvent {
+                            message: format!("Async Stream Event #{i}"),
+                            count: i,
+                        };
+                    }
+                };
+
+                Ok(s)
             })
     }
     .into_axum_router_with(base_ctx, extract_context);
@@ -399,6 +446,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   POST /rpc/planet/list-paginated     - List planets with pagination (public)");
     println!("   POST /rpc/planet/find               - Find planet by ID (public)");
     println!("   POST /rpc/planet/create             - Create planet (requires auth)");
+    println!("   POST /rpc/stream                    - SSE streaming demo (public)");
+    println!("   POST /rpc/stream-async              - SSE async streaming demo (public)");
     println!();
     println!("   Press Ctrl+C to shutdown");
 

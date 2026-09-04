@@ -23,3 +23,6 @@ better-auth = { version = "1.0.0-alpha.2", features = ["axum", "seaorm2"] }
 
 # Utilities
 chrono = "0.4"
+
+tokio-stream = "0.1.19"
+async-stream = "0.3"

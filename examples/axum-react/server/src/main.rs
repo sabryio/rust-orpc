@@ -102,7 +102,7 @@ impl IntoResponse for RpcError {
         let status = match self.code.as_str() {
             "NOT_FOUND" => StatusCode::NOT_FOUND,
             "BAD_REQUEST" => StatusCode::BAD_REQUEST,
-            "AUTHENTICATION_REQUIRED" => StatusCode::UNAUTHORIZED,
+            "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self)).into_response()

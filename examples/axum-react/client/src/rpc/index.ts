@@ -68,3 +68,17 @@ export const client: RouterContractClient<typeof contract> =
 
 // Create TanStack Query utilities
 export const orpc = createTanstackQueryUtils(client);
+
+// Type guard for RpcError structure from Rust/Axum backend
+export function isRpcError(
+  error: unknown,
+): error is { code: string; message: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "message" in error &&
+    typeof (error as any).code === "string" &&
+    typeof (error as any).message === "string"
+  );
+}

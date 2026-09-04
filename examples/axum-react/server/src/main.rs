@@ -74,6 +74,13 @@ impl RpcError {
             message: message.into(),
         }
     }
+
+    fn internal_error(message: impl Into<String>) -> Self {
+        Self {
+            code: "INTERNAL_ERROR".into(),
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for RpcError {
@@ -81,6 +88,7 @@ impl IntoResponse for RpcError {
         let status = match self.code.as_str() {
             "NOT_FOUND" => StatusCode::NOT_FOUND,
             "BAD_REQUEST" => StatusCode::BAD_REQUEST,
+            "INTERNAL_ERROR" => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -145,6 +153,12 @@ async fn create_planet(
 ) -> Result<Json<Planet>, RpcError> {
     if input.name.trim().is_empty() {
         return Err(RpcError::bad_request("Planet name cannot be empty"));
+    }
+
+    if input.name.len() > 100 {
+        return Err(RpcError::internal_error(
+            "Planet name is too long (max 100 characters)",
+        ));
     }
 
     // In a real app, this would insert into a database

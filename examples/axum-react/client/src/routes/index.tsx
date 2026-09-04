@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState, useEffect, useRef } from "react";
-import { client, orpc } from "#/rpc";
+import { client, orpc, isRpcError } from "#/rpc";
 import { consumeAsyncIterator, getEventMeta } from "@orpc/client";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -213,7 +213,24 @@ function PlanetFind() {
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-          {String(error)}
+          {isRpcError(error) ? (
+            <>
+              {error.code === "NOT_FOUND" && (
+                <div className="flex items-start gap-2">
+                  <span className="text-red-600">⚠️</span>
+                  <div>
+                    <p className="font-medium">Planet Not Found</p>
+                    <p className="text-red-700 mt-1">{error.message}</p>
+                  </div>
+                </div>
+              )}
+              {error.code !== "NOT_FOUND" && (
+                <p>{error.message}</p>
+              )}
+            </>
+          ) : (
+            <p>An unexpected error occurred: {String(error)}</p>
+          )}
         </div>
       )}
 
@@ -262,7 +279,6 @@ function CreatePlanet() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            required
             className="w-full px-3 py-2 text-sm border border-neutral-300 rounded-md placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
             placeholder="Planet name"
           />
@@ -280,7 +296,7 @@ function CreatePlanet() {
 
         <button
           type="submit"
-          disabled={mutation.isPending || !name.trim()}
+          disabled={mutation.isPending}
           className="w-full px-4 py-2.5 bg-neutral-900 text-white text-sm font-medium rounded-md hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {mutation.isPending ? "Creating…" : "Create"}
@@ -297,7 +313,36 @@ function CreatePlanet() {
 
       {mutation.error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-800">{String(mutation.error)}</p>
+          {isRpcError(mutation.error) ? (
+            <>
+              {mutation.error.code === "BAD_REQUEST" && (
+                <div className="flex items-start gap-2 text-red-800">
+                  <span className="text-red-600">⚠️</span>
+                  <div>
+                    <p className="font-medium">Invalid Input</p>
+                    <p className="text-red-700 mt-1">{mutation.error.message}</p>
+                  </div>
+                </div>
+              )}
+              {mutation.error.code === "INTERNAL_ERROR" && (
+                <div className="flex items-start gap-2 text-red-800">
+                  <span className="text-red-600">❌</span>
+                  <div>
+                    <p className="font-medium">Validation Error</p>
+                    <p className="text-red-700 mt-1">{mutation.error.message}</p>
+                  </div>
+                </div>
+              )}
+              {mutation.error.code !== "BAD_REQUEST" &&
+                mutation.error.code !== "INTERNAL_ERROR" && (
+                  <p className="text-red-800">{mutation.error.message}</p>
+                )}
+            </>
+          ) : (
+            <p className="text-red-800">
+              An unexpected error occurred: {String(mutation.error)}
+            </p>
+          )}
         </div>
       )}
     </div>

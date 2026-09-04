@@ -22,7 +22,7 @@ import { z } from "zod";
 const UserSchema = z.object({
   id: z.number(),
   name: z.string(),
-  email: z.string().email(),
+  email: z.email(),
   age: z.number().optional(),
   roles: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.any()).optional(),
@@ -45,7 +45,7 @@ const PaginationInputSchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).optional(),
 });
 
-const PaginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =>
+const PaginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) =>
   z.object({
     items: z.array(itemSchema),
     total: z.number(),

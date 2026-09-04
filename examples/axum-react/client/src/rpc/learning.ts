@@ -327,6 +327,21 @@ const link = new OpenAPILink(learningContract, {
     console.groupEnd();
     return response;
   },
+  interceptors: [
+    async ({ next, path, input: _ }) => {
+      console.time(path.join("."));
+
+      try {
+        const output = await next();
+        return output;
+      } catch (err) {
+        console.error(`${path.join(".")}:`, err);
+        throw err;
+      } finally {
+        console.timeEnd(path.join("."));
+      }
+    },
+  ],
 });
 
 export const learningClient: RouterContractClient<typeof learningContract> =

@@ -12,7 +12,7 @@
 
 use axum::{
     body::Bytes,
-    extract::{Path, Query, Request},
+    extract::{Path, Query},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::any,
@@ -21,6 +21,7 @@ use axum::{
 use colored::*;
 use serde_json::Value;
 use std::collections::HashMap;
+use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() {
@@ -52,9 +53,41 @@ async fn main() {
 
     let app = Router::new()
         // Catch all paths with all methods
-        .route("/*path", any(inspect_handler))
+        .route("/{*path}", any(inspect_handler))
         // Fallback for root path
-        .fallback(inspect_root);
+        .fallback(inspect_root)
+        // CORS for development - allow all origins
+        .layer(
+            CorsLayer::new()
+                .allow_origin([
+                    "http://localhost:3000"
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap(),
+                    "http://127.0.0.1:3000"
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap(),
+                    "http://localhost:5173"
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap(),
+                    "http://127.0.0.1:5173"
+                        .parse::<axum::http::HeaderValue>()
+                        .unwrap(),
+                ])
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::ACCEPT,
+                ])
+                .allow_credentials(true),
+        );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3002")
         .await

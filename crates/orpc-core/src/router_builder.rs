@@ -232,6 +232,7 @@ where
 mod tests {
     use super::*;
     use crate::os;
+    use crate::route::HttpMethod;
 
     #[derive(Clone)]
     struct TestCtx {
@@ -248,6 +249,7 @@ mod tests {
         let router = r().add(
             "ping",
             os().context::<TestCtx>()
+                .route(HttpMethod::Get, "/ping")
                 .output::<String>()
                 .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
         );
@@ -265,12 +267,14 @@ mod tests {
             .add(
                 "ping",
                 os().context::<TestCtx>()
+                    .route(HttpMethod::Get, "/ping")
                     .output::<String>()
                     .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
             )
             .add(
                 "double",
                 os().context::<TestCtx>()
+                    .route(HttpMethod::Post, "/double")
                     .input::<Input>()
                     .output::<i32>()
                     .handler(|_ctx: TestCtx, input: Input| async move { Ok(input.x * 2) }),
@@ -290,12 +294,14 @@ mod tests {
             .add(
                 "list",
                 os().context::<TestCtx>()
+                    .route(HttpMethod::Get, "/planet")
                     .output::<String>()
                     .handler(|_ctx: TestCtx, _: ()| async { Ok("[]".to_string()) }),
             )
             .add(
                 "find",
                 os().context::<TestCtx>()
+                    .route(HttpMethod::Get, "/planet/{id}")
                     .input::<Input>()
                     .output::<String>()
                     .handler(|_ctx: TestCtx, input: Input| async move {
@@ -307,6 +313,7 @@ mod tests {
             .add(
                 "ping",
                 os().context::<TestCtx>()
+                    .route(HttpMethod::Get, "/ping")
                     .output::<String>()
                     .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
             )
@@ -326,6 +333,7 @@ mod tests {
         let inner = r().add(
             "action",
             os().context::<TestCtx>()
+                .route(HttpMethod::Post, "/action")
                 .output::<String>()
                 .handler(|_ctx: TestCtx, _: ()| async { Ok("done".to_string()) }),
         );
@@ -344,6 +352,7 @@ mod tests {
         let router = r().add(
             "add",
             os().context::<TestCtx>()
+                .route(HttpMethod::Post, "/add")
                 .input::<Input>()
                 .output::<i32>()
                 .handler(|ctx: TestCtx, input: Input| async move { Ok(ctx.value + input.x) }),
@@ -369,6 +378,7 @@ mod tests {
         let sub = r().add(
             "proc",
             os().context::<TestCtx>()
+                .route(HttpMethod::Get, "/proc")
                 .output::<String>()
                 .handler(|_ctx: TestCtx, _: ()| async { Ok("ok".to_string()) }),
         );

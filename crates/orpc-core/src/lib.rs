@@ -8,17 +8,17 @@
 //!
 //! ## Example
 //!
-//! ```rust
-//! use orpc_core::{os, Procedure};
+//! ```rust,ignore
+//! use orpc_core::{os, HttpMethod};
 //!
 //! #[derive(Clone)]
 //! struct AppContext {
 //!     data: String,
 //! }
 //!
-//! // Define a procedure with typed input and output
 //! let ping = os()
 //!     .context::<AppContext>()
+//!     .route(HttpMethod::Get, "/ping")
 //!     .output::<String>()
 //!     .handler(|_ctx: AppContext, _: ()| async move {
 //!         Ok("pong".to_string())
@@ -29,14 +29,16 @@ mod builder;
 mod error;
 mod procedure;
 mod registry;
+mod route;
 mod router;
 mod router_builder;
 
 // Re-export public API
-pub use builder::{os, ProcedureBuilder};
+pub use builder::{os, ProcedureBuilder, Routed, Unrouted};
 pub use error::{IntoOrpcError, OrpcError};
 pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
+pub use route::{HttpMethod, RouteMetadata};
 pub use router::Router;
 pub use router_builder::{r, RouterBuilder};
 

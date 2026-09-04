@@ -1,5 +1,6 @@
 //! Procedure definitions and type-erased dispatch.
 
+use crate::route::RouteMetadata;
 use crate::OrpcError;
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -9,9 +10,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 /// Output kind for procedure results — either a single value or a stream.
-///
-/// Supports both regular procedures that return a single value and streaming
-/// procedures that return an async stream of values.
 pub enum OutputKind {
     /// Single JSON value
     Single(Value),
@@ -29,17 +27,8 @@ impl std::fmt::Debug for OutputKind {
 }
 
 /// Type-erased trait for runtime procedure dispatch.
-///
-/// Allows heterogeneous procedures to be stored in a registry and called
-/// through a uniform interface, converting JSON input to typed input and
-/// typed output back to JSON.
-///
-/// # DIP: Interface for runtime dispatch — concrete Procedure<Ctx, In, Out> depends on this
 #[async_trait]
 pub trait ProcedureHandler<Ctx>: Send + Sync {
-    /// Executes the procedure with JSON input, returns JSON output or error.
-    ///
-    /// Handles deserialization of input and serialization of output internally.
     async fn call(&self, ctx: Ctx, input: Value) -> Result<OutputKind, OrpcError>;
 }
 
@@ -49,17 +38,17 @@ type HandlerFn<Ctx, In, Out> = Arc<
 
 /// A typed RPC procedure with compile-time guarantees.
 ///
-/// Generic over context, input, and output types. The type system enforces
-/// that handlers match the declared signature.
-///
-/// # SRP: Represents a single RPC procedure — input validation, handler execution, output serialization
+/// Carries both the handler and the route metadata declared via `.route()`.
+/// The `route` field is public so transport adapters (Axum, Tauri) can read it.
 pub struct Procedure<Ctx, In, Out> {
     pub(crate) handler: HandlerFn<Ctx, In, Out>,
+    /// Route metadata declared via `.route()` — read by transport adapters.
+    pub route: RouteMetadata,
 }
 
 impl<Ctx, In, Out> Procedure<Ctx, In, Out> {
-    pub(crate) fn new(handler: HandlerFn<Ctx, In, Out>) -> Self {
-        Self { handler }
+    pub(crate) fn new(handler: HandlerFn<Ctx, In, Out>, route: RouteMetadata) -> Self {
+        Self { handler, route }
     }
 }
 
@@ -67,6 +56,7 @@ impl<Ctx, In, Out> Clone for Procedure<Ctx, In, Out> {
     fn clone(&self) -> Self {
         Self {
             handler: Arc::clone(&self.handler),
+            route: self.route.clone(),
         }
     }
 }
@@ -94,7 +84,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::os;
+    use crate::route::HttpMethod;
+    use crate::{os, OrpcError};
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone)]
@@ -112,6 +103,7 @@ mod tests {
         let ctx = TestContext { multiplier: 2 };
         let proc = os()
             .context::<TestContext>()
+            .route(HttpMethod::Post, "/multiply")
             .input::<Input>()
             .output::<i32>()
             .handler(
@@ -133,6 +125,7 @@ mod tests {
         let ctx = TestContext { multiplier: 2 };
         let proc = os()
             .context::<TestContext>()
+            .route(HttpMethod::Post, "/fail")
             .input::<Input>()
             .output::<i32>()
             .handler(|_ctx: TestContext, _input: Input| async move {
@@ -152,6 +145,7 @@ mod tests {
         let ctx = TestContext { multiplier: 2 };
         let proc = os()
             .context::<TestContext>()
+            .route(HttpMethod::Post, "/multiply")
             .input::<Input>()
             .output::<i32>()
             .handler(
@@ -170,46 +164,32 @@ mod tests {
     #[tokio::test]
     async fn test_procedure_no_input() {
         let ctx = TestContext { multiplier: 5 };
-        let proc = os().context::<TestContext>().output::<String>().handler(
-            |ctx: TestContext, _: ()| async move { Ok(format!("multiplier: {}", ctx.multiplier)) },
-        );
+        let proc = os()
+            .context::<TestContext>()
+            .route(HttpMethod::Get, "/info")
+            .output::<String>()
+            .handler(|ctx: TestContext, _: ()| async move {
+                Ok(format!("multiplier: {}", ctx.multiplier))
+            });
 
         let result = proc.call(ctx, Value::Null).await;
 
         assert!(result.is_ok());
         match result.unwrap() {
-            OutputKind::Single(v) => {
-                assert_eq!(v, serde_json::json!("multiplier: 5"));
-            }
+            OutputKind::Single(v) => assert_eq!(v, serde_json::json!("multiplier: 5")),
             OutputKind::Stream(_) => panic!("Expected Single, got Stream"),
         }
     }
 
     #[tokio::test]
-    async fn test_procedure_context_usage() {
-        #[derive(Clone)]
-        struct DbContext {
-            data: Vec<String>,
-        }
-
-        let ctx = DbContext {
-            data: vec!["item1".to_string(), "item2".to_string()],
-        };
-
+    async fn test_procedure_carries_route_metadata() {
         let proc = os()
-            .context::<DbContext>()
-            .output::<Vec<String>>()
-            .handler(|ctx: DbContext, _: ()| async move { Ok(ctx.data) });
+            .context::<TestContext>()
+            .route(HttpMethod::Delete, "/items/{id}")
+            .output::<String>()
+            .handler(|_ctx: TestContext, _: ()| async { Ok("deleted".to_string()) });
 
-        let result = proc.call(ctx, Value::Null).await;
-
-        assert!(result.is_ok());
-        match result.unwrap() {
-            OutputKind::Single(v) => {
-                let items: Vec<String> = serde_json::from_value(v).unwrap();
-                assert_eq!(items, vec!["item1", "item2"]);
-            }
-            OutputKind::Stream(_) => panic!("Expected Single, got Stream"),
-        }
+        assert_eq!(proc.route.method, HttpMethod::Delete);
+        assert_eq!(proc.route.path, "/items/{id}");
     }
 }

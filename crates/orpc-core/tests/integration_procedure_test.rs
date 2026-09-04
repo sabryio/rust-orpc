@@ -1,6 +1,6 @@
 //! Integration test: End-to-end procedure call with context injection
 
-use orpc_core::{OrpcError, OutputKind, Procedure, ProcedureHandler, os};
+use orpc_core::{os, HttpMethod, OrpcError, OutputKind, Procedure, ProcedureHandler};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -29,7 +29,6 @@ struct CreatePlanetInput {
 
 #[tokio::test]
 async fn test_end_to_end_procedure_with_context() {
-    // Setup context with data
     let ctx = DatabaseContext {
         data: Arc::new(vec![
             Planet {
@@ -46,9 +45,9 @@ async fn test_end_to_end_procedure_with_context() {
         user_id: Some(100),
     };
 
-    // Create procedure that uses context
     let find_planet = os()
         .context::<DatabaseContext>()
+        .route(HttpMethod::Get, "/planet/{id}")
         .input::<FindPlanetInput>()
         .output::<Planet>()
         .handler(|ctx: DatabaseContext, input: FindPlanetInput| async move {
@@ -59,7 +58,6 @@ async fn test_end_to_end_procedure_with_context() {
                 .ok_or_else(|| OrpcError::not_found(format!("Planet {} not found", input.id)))
         });
 
-    // Call procedure
     let input = serde_json::json!({ "id": 1 });
     let result = find_planet.call(ctx.clone(), input).await;
 
@@ -77,29 +75,29 @@ async fn test_end_to_end_procedure_with_context() {
 #[tokio::test]
 async fn test_context_shared_across_procedures() {
     let ctx = DatabaseContext {
-        data: Arc::new(vec![
-            Planet {
-                id: 1,
-                name: "Venus".to_string(),
-                discovered_by: None,
-            },
-        ]),
+        data: Arc::new(vec![Planet {
+            id: 1,
+            name: "Venus".to_string(),
+            discovered_by: None,
+        }]),
         user_id: Some(200),
     };
 
-    // Multiple procedures share the same context type
     let list_planets = os()
         .context::<DatabaseContext>()
+        .route(HttpMethod::Get, "/planet")
         .output::<Vec<Planet>>()
         .handler(|ctx: DatabaseContext, _: ()| async move { Ok(ctx.data.to_vec()) });
 
     let count_planets = os()
         .context::<DatabaseContext>()
+        .route(HttpMethod::Get, "/planet/count")
         .output::<usize>()
         .handler(|ctx: DatabaseContext, _: ()| async move { Ok(ctx.data.len()) });
 
-    // Both procedures can access the same context
-    let list_result = list_planets.call(ctx.clone(), serde_json::Value::Null).await;
+    let list_result = list_planets
+        .call(ctx.clone(), serde_json::Value::Null)
+        .await;
     assert!(list_result.is_ok());
 
     let count_result = count_planets.call(ctx, serde_json::Value::Null).await;
@@ -123,26 +121,27 @@ async fn test_procedure_error_handling() {
 
     let create_planet = os()
         .context::<DatabaseContext>()
+        .route(HttpMethod::Post, "/planet")
         .input::<CreatePlanetInput>()
         .output::<Planet>()
-        .handler(|ctx: DatabaseContext, input: CreatePlanetInput| async move {
-            // Require authenticated user
-            let user_id = ctx
-                .user_id
-                .ok_or_else(|| OrpcError::custom("UNAUTHORIZED", "Authentication required"))?;
+        .handler(
+            |ctx: DatabaseContext, input: CreatePlanetInput| async move {
+                let user_id = ctx
+                    .user_id
+                    .ok_or_else(|| OrpcError::custom("UNAUTHORIZED", "Authentication required"))?;
 
-            if input.name.is_empty() {
-                return Err(OrpcError::bad_request("Planet name cannot be empty"));
-            }
+                if input.name.is_empty() {
+                    return Err(OrpcError::bad_request("Planet name cannot be empty"));
+                }
 
-            Ok(Planet {
-                id: 999,
-                name: input.name,
-                discovered_by: Some(user_id),
-            })
-        });
+                Ok(Planet {
+                    id: 999,
+                    name: input.name,
+                    discovered_by: Some(user_id),
+                })
+            },
+        );
 
-    // Should fail due to missing user_id
     let input = serde_json::json!({ "name": "NewPlanet" });
     let result = create_planet.call(ctx, input).await;
 
@@ -165,11 +164,12 @@ async fn test_procedure_type_safety() {
 
     let proc: Procedure<TypedContext, TypedInput, i32> = os()
         .context::<TypedContext>()
+        .route(HttpMethod::Post, "/multiply")
         .input::<TypedInput>()
         .output::<i32>()
-        .handler(|ctx: TypedContext, input: TypedInput| async move {
-            Ok(ctx.value * input.multiplier)
-        });
+        .handler(
+            |ctx: TypedContext, input: TypedInput| async move { Ok(ctx.value * input.multiplier) },
+        );
 
     let ctx = TypedContext { value: 7 };
     let input = serde_json::json!({ "multiplier": 6 });

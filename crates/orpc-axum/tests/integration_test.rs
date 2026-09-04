@@ -1,11 +1,11 @@
-//! Integration test: orpc router to Axum router conversion using RouterBuilder
+//! Integration test: orpc router to Axum router conversion using RouteMetadata
 
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use orpc_axum::AxumRouter;
-use orpc_core::{os, r, OrpcError};
+use orpc_core::{os, r, HttpMethod, OrpcError};
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
@@ -31,6 +31,7 @@ async fn test_into_axum_router() {
         .add(
             "list",
             os().context::<AppContext>()
+                .route(HttpMethod::Get, "/planet")
                 .output::<Vec<Planet>>()
                 .handler(|_ctx: AppContext, _: ()| async move {
                     Ok(vec![
@@ -48,6 +49,7 @@ async fn test_into_axum_router() {
         .add(
             "find",
             os().context::<AppContext>()
+                .route(HttpMethod::Post, "/planet/find")
                 .input::<FindInput>()
                 .output::<Planet>()
                 .handler(|_ctx: AppContext, input: FindInput| async move {
@@ -71,9 +73,12 @@ async fn test_into_axum_router() {
     let api = r()
         .add(
             "ping",
-            os().context::<AppContext>().output::<String>().handler(
-                |ctx: AppContext, _: ()| async move { Ok(format!("{} pong", ctx.prefix)) },
-            ),
+            os().context::<AppContext>()
+                .route(HttpMethod::Get, "/ping")
+                .output::<String>()
+                .handler(
+                    |ctx: AppContext, _: ()| async move { Ok(format!("{} pong", ctx.prefix)) },
+                ),
         )
         .nest("planet", planet);
 
@@ -81,15 +86,14 @@ async fn test_into_axum_router() {
         prefix: "test".to_string(),
     });
 
-    // Test ping endpoint
+    // Test GET /ping
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
+                .method("GET")
                 .uri("/ping")
-                .header("content-type", "application/json")
-                .body(Body::from("null"))
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
@@ -102,15 +106,14 @@ async fn test_into_axum_router() {
     let result: String = serde_json::from_slice(&body).unwrap();
     assert_eq!(result, "test pong");
 
-    // Test planet/list endpoint
+    // Test GET /planet
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
-                .uri("/planet/list")
-                .header("content-type", "application/json")
-                .body(Body::from("null"))
+                .method("GET")
+                .uri("/planet")
+                .body(Body::empty())
                 .unwrap(),
         )
         .await
@@ -124,7 +127,7 @@ async fn test_into_axum_router() {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "Earth");
 
-    // Test planet/find endpoint
+    // Test POST /planet/find
     let response = app
         .clone()
         .oneshot(
@@ -153,6 +156,7 @@ async fn test_error_handling() {
         .add(
             "ping",
             os().context::<AppContext>()
+                .route(HttpMethod::Get, "/ping")
                 .output::<String>()
                 .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
         )
@@ -161,12 +165,14 @@ async fn test_error_handling() {
             r().add(
                 "list",
                 os().context::<AppContext>()
+                    .route(HttpMethod::Get, "/planet")
                     .output::<Vec<Planet>>()
                     .handler(|_ctx: AppContext, _: ()| async { Ok(vec![]) }),
             )
             .add(
                 "find",
                 os().context::<AppContext>()
+                    .route(HttpMethod::Post, "/planet/find")
                     .input::<FindInput>()
                     .output::<Planet>()
                     .handler(|_ctx: AppContext, input: FindInput| async move {
@@ -215,6 +221,7 @@ async fn test_deep_nesting() {
                 r().add(
                     "status",
                     os().context::<AppContext>()
+                        .route(HttpMethod::Get, "/api/v1/status")
                         .output::<String>()
                         .handler(|_ctx: AppContext, _: ()| async { Ok("ok".to_string()) }),
                 ),
@@ -227,10 +234,9 @@ async fn test_deep_nesting() {
     let response = app
         .oneshot(
             Request::builder()
-                .method("POST")
+                .method("GET")
                 .uri("/api/v1/status")
-                .header("content-type", "application/json")
-                .body(Body::from("null"))
+                .body(Body::empty())
                 .unwrap(),
         )
         .await

@@ -1,9 +1,10 @@
 //! Basic example: define a type-safe Axum API with orpc using the router! macro.
 //!
 //! Clean, declarative syntax that mirrors TypeScript oRPC.
+//! Each procedure declares its HTTP method and absolute path via .route().
 
 use orpc_axum::AxumRouter;
-use orpc_core::{os, router, OrpcError};
+use orpc_core::{os, router, HttpMethod, OrpcError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -37,11 +38,13 @@ async fn main() {
     let app = router! {
         ping: os()
             .context::<AppContext>()
+            .route(HttpMethod::Get, "/ping")
             .output::<String>()
             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
 
         greet: os()
             .context::<AppContext>()
+            .route(HttpMethod::Post, "/greet")
             .input::<GreetInput>()
             .output::<GreetOutput>()
             .handler(|ctx, input: GreetInput| async move {
@@ -56,6 +59,7 @@ async fn main() {
         planet: {
             list: os()
                 .context::<AppContext>()
+                .route(HttpMethod::Get, "/planet")
                 .output::<Vec<Planet>>()
                 .handler(|_ctx, _: ()| async move {
                     Ok(vec![
@@ -66,6 +70,7 @@ async fn main() {
 
             find: os()
                 .context::<AppContext>()
+                .route(HttpMethod::Post, "/planet/find")
                 .input::<FindInput>()
                 .output::<Planet>()
                 .handler(|_ctx, input: FindInput| async move {
@@ -81,9 +86,9 @@ async fn main() {
     });
 
     println!("🚀 Server running on http://127.0.0.1:3000");
-    println!("   POST /ping");
+    println!("   GET  /ping");
     println!("   POST /greet");
-    println!("   POST /planet/list");
+    println!("   GET  /planet");
     println!("   POST /planet/find");
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")

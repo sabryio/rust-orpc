@@ -1,52 +1,40 @@
 //! # orpc-axum
 //!
 //! Axum integration for `orpc-core` — converts type-safe RPC procedure routers
-//! into Axum routers with automatic routing and JSON serialization.
+//! into Axum routers using each procedure's declared route metadata.
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use orpc_core::{os, Procedure, ProcedureRegistry, Router};
+//! use orpc_core::{os, HttpMethod};
 //! use orpc_axum::AxumRouter;
 //!
 //! #[derive(Clone)]
-//! struct AppContext {
-//!     data: String,
-//! }
-//!
-//! struct ApiRouter {
-//!     ping: Procedure<AppContext, (), String>,
-//! }
-//!
-//! impl Router<AppContext> for ApiRouter {
-//!     fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<AppContext>) {
-//!         registry.insert("ping", &self.ping);
-//!     }
-//! }
+//! struct AppContext;
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let router = ApiRouter {
-//!         ping: os()
+//!     let router = orpc_core::r()
+//!         .add("ping", os()
 //!             .context::<AppContext>()
+//!             .route(HttpMethod::Get, "/ping")
 //!             .output::<String>()
-//!             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
-//!     };
+//!             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }));
 //!
-//!     let app = router.into_axum_router(AppContext { data: "test".to_string() });
-//!
+//!     let app = router.into_axum_router(AppContext);
 //!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
 //!     axum::serve(listener, app).await.unwrap();
 //! }
 //! ```
 
 use axum::{
-    http::StatusCode,
+    body::Body,
+    http::{Method, StatusCode},
     response::{IntoResponse, Json, Response},
-    routing::post,
+    routing::{delete, get, patch, post, put},
     Router as AxumRouterType,
 };
-use orpc_core::{OrpcError, OutputKind, ProcedureRegistry, Router};
+use orpc_core::{HttpMethod, OrpcError, OutputKind, ProcedureRegistry, Router};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -55,16 +43,12 @@ pub trait AxumRouter<Ctx>: Router<Ctx>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
-    /// Converts this orpc router into an Axum router with automatic routing.
+    /// Converts this orpc router into an Axum router.
     ///
-    /// All procedures are registered at POST endpoints matching their path,
-    /// with CORS enabled for all origins.
+    /// Each procedure is registered at the HTTP method and absolute path
+    /// declared via `.route()` on the procedure builder.
     ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let axum_app = my_router.into_axum_router(context);
-    /// ```
+    /// CORS is enabled for all origins by default.
     fn into_axum_router(self, ctx: Ctx) -> AxumRouterType
     where
         Self: Sized,
@@ -76,26 +60,43 @@ where
         let context_arc = Arc::new(ctx);
         let mut axum_router = AxumRouterType::new();
 
-        // Register each procedure as a POST route with closure capturing path
-        let paths: Vec<String> = registry.paths().cloned().collect();
+        // Collect (key, method, path) before iterating to avoid borrow issues
+        let routes: Vec<(String, HttpMethod, String)> = registry
+            .routes()
+            .map(|(key, meta)| (key.clone(), meta.method.clone(), meta.path.clone()))
+            .collect();
 
-        for path in paths {
-            let route_path = format!("/{}", path);
-            let path_for_handler = path.clone();
+        for (key, method, path) in routes {
             let registry_clone = Arc::clone(&registry);
             let context_clone = Arc::clone(&context_arc);
+            let key_clone = key.clone();
 
-            axum_router = axum_router.route(
-                &route_path,
-                post(move |Json(input): Json<serde_json::Value>| {
-                    handle_procedure_closure(
-                        Arc::clone(&registry_clone),
-                        Arc::clone(&context_clone),
-                        path_for_handler.clone(),
-                        input,
-                    )
-                }),
-            );
+            let handler = move |body: axum::extract::Json<serde_json::Value>| {
+                let registry = Arc::clone(&registry_clone);
+                let context = Arc::clone(&context_clone);
+                let key = key_clone.clone();
+                async move { handle_procedure(registry, context, key, body.0).await }
+            };
+
+            // Also register a no-body variant for GET-style requests
+            let registry_clone2 = Arc::clone(&registry);
+            let context_clone2 = Arc::clone(&context_arc);
+            let key_clone2 = key.clone();
+
+            let handler_no_body = move || {
+                let registry = Arc::clone(&registry_clone2);
+                let context = Arc::clone(&context_clone2);
+                let key = key_clone2.clone();
+                async move { handle_procedure(registry, context, key, serde_json::Value::Null).await }
+            };
+
+            axum_router = match method {
+                HttpMethod::Get => axum_router.route(&path, get(handler_no_body)),
+                HttpMethod::Post => axum_router.route(&path, post(handler)),
+                HttpMethod::Put => axum_router.route(&path, put(handler)),
+                HttpMethod::Patch => axum_router.route(&path, patch(handler)),
+                HttpMethod::Delete => axum_router.route(&path, delete(handler_no_body)),
+            };
         }
 
         axum_router.layer(
@@ -107,7 +108,7 @@ where
     }
 }
 
-// Implement AxumRouter for any type that implements Router
+// Blanket impl for any type that implements Router
 impl<T, Ctx> AxumRouter<Ctx> for T
 where
     T: Router<Ctx>,
@@ -115,17 +116,17 @@ where
 {
 }
 
-async fn handle_procedure_closure<Ctx>(
+async fn handle_procedure<Ctx>(
     registry: Arc<ProcedureRegistry<Ctx>>,
     context: Arc<Ctx>,
-    path: String,
+    key: String,
     input: serde_json::Value,
 ) -> Result<Json<serde_json::Value>, AxumError>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
     let ctx = (*context).clone();
-    let result = registry.call(&path, ctx, input).await?;
+    let result = registry.call(&key, ctx, input).await?;
 
     match result {
         OutputKind::Single(value) => Ok(Json(value)),
@@ -135,7 +136,7 @@ where
     }
 }
 
-/// Axum-specific error wrapper that implements IntoResponse
+/// Axum-specific error wrapper that implements IntoResponse.
 #[derive(Debug)]
 enum AxumError {
     Orpc(OrpcError),
@@ -179,6 +180,7 @@ impl IntoResponse for AxumError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orpc_core::{os, r, HttpMethod, ProcedureRegistry, Router};
 
     #[derive(Clone)]
     struct TestContext {
@@ -187,7 +189,6 @@ mod tests {
 
     #[test]
     fn test_axum_router_trait_available() {
-        // Type check: verify AxumRouter trait is implemented for Router types
         struct SimpleRouter;
 
         impl Router<TestContext> for SimpleRouter {
@@ -196,12 +197,34 @@ mod tests {
                 _prefix: &str,
                 _registry: &mut ProcedureRegistry<TestContext>,
             ) {
-                // No-op for type check
             }
         }
 
-        // This should compile if AxumRouter is properly implemented
         fn _takes_axum_router<T: AxumRouter<TestContext>>(_router: T) {}
         _takes_axum_router(SimpleRouter);
+    }
+
+    #[tokio::test]
+    async fn test_into_axum_router_registers_correct_methods() {
+        let router = r()
+            .add(
+                "ping",
+                os().context::<TestContext>()
+                    .route(HttpMethod::Get, "/ping")
+                    .output::<String>()
+                    .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
+            )
+            .add(
+                "create",
+                os().context::<TestContext>()
+                    .route(HttpMethod::Post, "/items")
+                    .output::<String>()
+                    .handler(|_ctx, _: ()| async { Ok("created".to_string()) }),
+            );
+
+        // Should compile and build without panic
+        let _app = router.into_axum_router(TestContext {
+            value: "test".to_string(),
+        });
     }
 }

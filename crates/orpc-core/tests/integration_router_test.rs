@@ -1,6 +1,6 @@
 //! Integration test: Nested router struct flattening
 
-use orpc_core::{os, Procedure, ProcedureRegistry, Router};
+use orpc_core::{os, HttpMethod, Procedure, ProcedureRegistry, Router};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -13,7 +13,6 @@ struct FindInput {
     id: i32,
 }
 
-// Define nested router structure matching TypeScript contract shape
 struct PlanetRouter {
     list: Procedure<AppContext, (), Vec<String>>,
     find: Procedure<AppContext, FindInput, String>,
@@ -62,23 +61,23 @@ impl Router<AppContext> for ApiRouter {
 
 #[tokio::test]
 async fn test_nested_router_flattening() {
-    // Create nested router structure
     let router = ApiRouter {
         ping: os()
             .context::<AppContext>()
+            .route(HttpMethod::Get, "/ping")
             .output::<String>()
-            .handler(|ctx: AppContext, _: ()| async move {
-                Ok(format!("{} pong", ctx.prefix))
-            }),
+            .handler(|ctx: AppContext, _: ()| async move { Ok(format!("{} pong", ctx.prefix)) }),
         planet: PlanetRouter {
             list: os()
                 .context::<AppContext>()
+                .route(HttpMethod::Get, "/planet")
                 .output::<Vec<String>>()
                 .handler(|_ctx: AppContext, _: ()| async move {
                     Ok(vec!["Earth".to_string(), "Mars".to_string()])
                 }),
             find: os()
                 .context::<AppContext>()
+                .route(HttpMethod::Get, "/planet/{id}")
                 .input::<FindInput>()
                 .output::<String>()
                 .handler(|_ctx: AppContext, input: FindInput| async move {
@@ -87,17 +86,14 @@ async fn test_nested_router_flattening() {
         },
     };
 
-    // Flatten into registry
     let mut registry = ProcedureRegistry::<AppContext>::new();
     router.register_procedures("", &mut registry);
 
-    // Verify all procedures are registered
     assert!(registry.has("ping"));
     assert!(registry.has("planet/list"));
     assert!(registry.has("planet/find"));
     assert_eq!(registry.len(), 3);
 
-    // Verify procedures can be called
     let ctx = AppContext {
         prefix: "test".to_string(),
     };
@@ -113,11 +109,7 @@ async fn test_nested_router_flattening() {
     assert!(list_result.is_ok());
 
     let find_result = registry
-        .call(
-            "planet/find",
-            ctx,
-            serde_json::json!({ "id": 1 }),
-        )
+        .call("planet/find", ctx, serde_json::json!({ "id": 1 }))
         .await;
     assert!(find_result.is_ok());
 }
@@ -127,12 +119,12 @@ async fn test_router_with_prefix() {
     let router = PlanetRouter {
         list: os()
             .context::<AppContext>()
+            .route(HttpMethod::Get, "/planet")
             .output::<Vec<String>>()
-            .handler(|_ctx: AppContext, _: ()| async move {
-                Ok(vec!["Venus".to_string()])
-            }),
+            .handler(|_ctx: AppContext, _: ()| async move { Ok(vec!["Venus".to_string()]) }),
         find: os()
             .context::<AppContext>()
+            .route(HttpMethod::Get, "/planet/{id}")
             .input::<FindInput>()
             .output::<String>()
             .handler(|_ctx: AppContext, input: FindInput| async move {

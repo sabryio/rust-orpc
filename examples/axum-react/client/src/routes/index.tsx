@@ -9,7 +9,7 @@ import {
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState, useEffect, useRef } from "react";
 import { client, orpc } from "#/rpc";
-import { consumeAsyncIterator } from "@orpc/client";
+import { consumeAsyncIterator, getEventMeta } from "@orpc/client";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -296,9 +296,9 @@ function CreatePlanet() {
 }
 
 function StreamEvents() {
-  const [events, setEvents] = useState<{ message: string; count: number }[]>(
-    [],
-  );
+  const [events, setEvents] = useState<
+    { message: string; count: number; id?: string; retry?: number }[]
+  >([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string>("");
   const abortRef = useRef<AbortController | null>(null);
@@ -316,7 +316,11 @@ function StreamEvents() {
         signal: controller.signal,
       });
       for await (const event of iterator) {
-        setEvents((prev) => [...prev, event]);
+        const meta = getEventMeta(event);
+        setEvents((prev) => [
+          ...prev,
+          { ...event, id: meta?.id, retry: meta?.retry },
+        ]);
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
@@ -373,15 +377,20 @@ function StreamEvents() {
       )}
 
       <div className="space-y-0.5 max-h-64 overflow-y-auto">
-        {events.map((e) => (
+        {events.map((e, idx) => (
           <div
-            key={e.count}
+            key={idx}
             className="flex items-center gap-3 p-2 font-mono text-xs bg-neutral-50 text-neutral-700 rounded border border-transparent hover:border-neutral-200 transition-colors"
           >
             <span className="text-neutral-400 tabular-nums w-6 text-right">
               {e.count}
             </span>
             <span className="flex-1">{e.message}</span>
+            {e.id && (
+              <span className="text-neutral-400 text-[10px]">
+                id: {e.id} • retry: {e.retry}ms
+              </span>
+            )}
           </div>
         ))}
         {streaming && events.length > 0 && (
@@ -401,9 +410,9 @@ function StreamEvents() {
 
 // consumeAsyncIterator pattern
 function StreamAsyncConsumeIterator() {
-  const [events, setEvents] = useState<{ message: string; count: number }[]>(
-    [],
-  );
+  const [events, setEvents] = useState<
+    { message: string; count: number; id?: string; retry?: number }[]
+  >([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string>("");
   const [finished, setFinished] = useState(false);
@@ -417,7 +426,11 @@ function StreamAsyncConsumeIterator() {
 
     const cancel = consumeAsyncIterator(client.streamAsync(), {
       onEvent: (event) => {
-        setEvents((prev) => [...prev, event]);
+        const meta = getEventMeta(event);
+        setEvents((prev) => [
+          ...prev,
+          { ...event, id: meta?.id, retry: meta?.retry },
+        ]);
       },
       onError: (err) => {
         setError(String(err));
@@ -499,15 +512,20 @@ function StreamAsyncConsumeIterator() {
       )}
 
       <div className="space-y-0.5 max-h-64 overflow-y-auto">
-        {events.map((e) => (
+        {events.map((e, idx) => (
           <div
-            key={e.count}
+            key={idx}
             className="flex items-center gap-3 p-2 font-mono text-xs bg-neutral-50 text-neutral-700 rounded border border-transparent hover:border-neutral-200 transition-colors"
           >
             <span className="text-neutral-400 tabular-nums w-6 text-right">
               {e.count}
             </span>
             <span className="flex-1">{e.message}</span>
+            {e.id && (
+              <span className="text-neutral-400 text-[10px]">
+                id: {e.id} • retry: {e.retry}ms
+              </span>
+            )}
           </div>
         ))}
         {streaming && events.length > 0 && (
@@ -565,17 +583,25 @@ function StreamAsyncStreamed() {
       )}
 
       <div className="space-y-0.5 max-h-64 overflow-y-auto">
-        {events?.map((e, idx) => (
-          <div
-            key={idx}
-            className="flex items-center gap-3 p-2 font-mono text-xs bg-neutral-50 text-neutral-700 rounded border border-transparent hover:border-neutral-200 transition-colors"
-          >
-            <span className="text-neutral-400 tabular-nums w-6 text-right">
-              {e.count}
-            </span>
-            <span className="flex-1">{e.message}</span>
-          </div>
-        ))}
+        {events?.map((e, idx) => {
+          const meta = getEventMeta(e);
+          return (
+            <div
+              key={idx}
+              className="flex items-center gap-3 p-2 font-mono text-xs bg-neutral-50 text-neutral-700 rounded border border-transparent hover:border-neutral-200 transition-colors"
+            >
+              <span className="text-neutral-400 tabular-nums w-6 text-right">
+                {e.count}
+              </span>
+              <span className="flex-1">{e.message}</span>
+              {meta?.id && (
+                <span className="text-neutral-400 text-[10px]">
+                  id: {meta.id} • retry: {meta.retry}ms
+                </span>
+              )}
+            </div>
+          );
+        })}
         {!isLoading && (!events || events.length === 0) && (
           <p className="text-sm text-neutral-400 py-8 text-center">
             No events. Press Start.
@@ -627,16 +653,26 @@ function StreamAsyncLive() {
 
       <div>
         {latest ? (
-          <div className="p-4 bg-neutral-900 text-white rounded-lg border-2 border-neutral-300">
-            <div className="flex items-center gap-2 mb-3 text-xs font-mono text-neutral-400">
-              <span className="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-              <span>LIVE</span>
+          <>
+            <div className="p-4 bg-neutral-900 text-white rounded-lg border-2 border-neutral-300">
+              <div className="flex items-center gap-2 mb-3 text-xs font-mono text-neutral-400">
+                <span className="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                <span>LIVE</span>
+              </div>
+              <div className="flex items-center gap-3 font-mono text-sm">
+                <span className="text-neutral-400 tabular-nums">{latest.count}</span>
+                <span className="flex-1">{latest.message}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3 font-mono text-sm">
-              <span className="text-neutral-400 tabular-nums">{latest.count}</span>
-              <span className="flex-1">{latest.message}</span>
-            </div>
-          </div>
+            {(() => {
+              const meta = getEventMeta(latest);
+              return meta?.id ? (
+                <div className="mt-2 text-xs text-neutral-400 font-mono">
+                  Event metadata: id: {meta.id} • retry: {meta.retry}ms
+                </div>
+              ) : null;
+            })()}
+          </>
         ) : (
           <p className="text-sm text-neutral-400 py-8 text-center">
             {isLoading ? "Waiting for first event…" : "No event. Press Start."}

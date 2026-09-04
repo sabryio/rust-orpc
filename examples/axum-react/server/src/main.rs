@@ -143,7 +143,11 @@ async fn stream_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
             //   event: message  → yield (data event)
             //   event: error    → throw (error event)
             //   event: close    → end of stream (return)
-            Ok(Event::default().event("message").data(payload))
+            Ok(Event::default()
+                .event("message")
+                .id(count.to_string())
+                .retry(Duration::from_secs(5))
+                .data(payload))
         })
         .chain(tokio_stream::iter([Ok(Event::default()
             .event("close")
@@ -173,7 +177,11 @@ async fn stream_async() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
             })
             .unwrap();
 
-            yield Ok(Event::default().event("message").data(payload));
+            yield Ok(Event::default()
+                .event("message")
+                .id(i.to_string())
+                .retry(Duration::from_secs(5))
+                .data(payload));
         }
 
         // Final close event

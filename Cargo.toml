@@ -1,6 +1,3 @@
 [workspace]
-members = [
-    "crates/orpc-core",
-    "examples/axum-react/server",
-]
+members = ["crates/orpc-core", "crates/orpc-axum", "examples/axum-react/server"]
 resolver = "3"

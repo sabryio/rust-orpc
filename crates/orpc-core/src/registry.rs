@@ -74,6 +74,11 @@ where
     pub fn is_empty(&self) -> bool {
         self.procedures.is_empty()
     }
+
+    /// Returns an iterator over all registered procedure paths.
+    pub fn paths(&self) -> impl Iterator<Item = &String> {
+        self.procedures.keys()
+    }
 }
 
 impl<Ctx> Default for ProcedureRegistry<Ctx>

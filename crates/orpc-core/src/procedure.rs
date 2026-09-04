@@ -30,6 +30,7 @@ impl std::fmt::Debug for OutputKind {
 #[async_trait]
 pub trait ProcedureHandler<Ctx>: Send + Sync {
     async fn call(&self, ctx: Ctx, input: Value) -> Result<OutputKind, OrpcError>;
+    fn route_metadata(&self) -> &RouteMetadata;
 }
 
 type HandlerFn<Ctx, In, Out> = Arc<
@@ -78,6 +79,10 @@ where
             serde_json::to_value(&output).map_err(|e| OrpcError::internal(e.to_string()))?;
 
         Ok(OutputKind::Single(json_output))
+    }
+
+    fn route_metadata(&self) -> &RouteMetadata {
+        &self.route
     }
 }
 

@@ -30,12 +30,17 @@
 
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Json, Response},
+    response::{
+        sse::{Event, KeepAlive},
+        IntoResponse, Json, Response, Sse,
+    },
     routing::{delete, get, patch, post, put},
     Router as AxumRouterType,
 };
+use futures::Stream;
 use orpc_core::{HttpMethod, OrpcError, OutputKind, ProcedureRegistry, Router};
-use std::sync::Arc;
+use std::{convert::Infallible, pin::Pin, sync::Arc, time::Duration};
+use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
 /// Extension trait to convert orpc routers into Axum routers.
@@ -123,7 +128,7 @@ async fn handle_procedure<Ctx>(
     context: Arc<Ctx>,
     key: String,
     input: serde_json::Value,
-) -> Result<Json<serde_json::Value>, AxumError>
+) -> Result<Response, AxumError>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
@@ -131,10 +136,41 @@ where
     let result = registry.call(&key, ctx, input).await?;
 
     match result {
-        OutputKind::Single(value) => Ok(Json(value)),
-        OutputKind::Stream(_) => Err(AxumError::Internal(
-            "Streaming not yet supported via Axum integration".to_string(),
-        )),
+        OutputKind::Single(value) => Ok(Json(value).into_response()),
+        OutputKind::Stream(stream) => {
+            // Convert the stream into SSE format
+            let sse_stream = stream_to_sse(stream);
+            Ok(Sse::new(sse_stream)
+                .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
+                .into_response())
+        }
+    }
+}
+
+fn stream_to_sse(
+    stream: Pin<Box<dyn Stream<Item = serde_json::Value> + Send>>,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    use async_stream::stream;
+
+    stream! {
+        // Send initial empty comment to flush headers immediately
+        yield Ok(Event::default().comment(""));
+
+        let mut stream = stream;
+
+        while let Some(value) = stream.next().await {
+            // Serialize the value to JSON string for SSE data field
+            if let Ok(data) = serde_json::to_string(&value) {
+                yield Ok(Event::default()
+                    .event("message")
+                    .data(data));
+            }
+        }
+
+        // Send close event to signal end of stream
+        yield Ok(Event::default()
+            .event("close")
+            .data(""));
     }
 }
 

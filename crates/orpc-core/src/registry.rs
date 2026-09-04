@@ -1,7 +1,7 @@
 //! Procedure registry for runtime dispatch.
 
 use crate::route::RouteMetadata;
-use crate::{OrpcError, OutputKind, Procedure, ProcedureHandler};
+use crate::{OrpcError, OutputKind,  ProcedureHandler};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -39,17 +39,16 @@ where
     ///
     /// The key is used for `call()` lookup. The route metadata carried by
     /// the procedure is stored alongside for transport adapters.
-    pub fn insert<In, Out>(&mut self, path: impl Into<String>, procedure: &Procedure<Ctx, In, Out>)
+    pub fn insert<P>(&mut self, path: impl Into<String>, procedure: &P)
     where
-        In: serde::de::DeserializeOwned + Send + 'static,
-        Out: serde::Serialize + Send + 'static,
+        P: ProcedureHandler<Ctx> + Clone + 'static,
     {
-        let path = path.into();
+        let path_str = path.into();
         let entry = RegistryEntry {
             handler: Box::new(procedure.clone()),
-            route: procedure.route.clone(),
+            route: procedure.route_metadata().clone(),
         };
-        self.entries.insert(path, entry);
+        self.entries.insert(path_str, entry);
     }
 
     /// Calls a procedure by key path with JSON input.

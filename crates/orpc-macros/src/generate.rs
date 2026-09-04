@@ -76,11 +76,11 @@ fn generate_items(items: &[RouterItem]) -> TokenStream {
 ///
 /// Produces:
 /// ```ignore
-/// .add(os().route(GET, "/ping").output::<String>()...)
+/// .add_procedure(os().route(GET, "/ping").output::<String>()...)
 /// ```
 fn generate_procedure(expr: &syn::Expr) -> TokenStream {
     quote! {
-        .add(#expr)
+        .add_procedure(#expr)
     }
 }
 

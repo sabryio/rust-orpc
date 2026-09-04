@@ -2,16 +2,17 @@
 //! `orpc-core` + `orpc-axum` + `router!` macro.
 //!
 //! Serves on the same port (3001) so the React client works unchanged.
-//! WebSocket and SSE streaming are excluded — will be added when supported.
+//! Includes SSE streaming support via the orpc-axum integration.
 //!
 //! Run with:
 //!   cargo run --bin orpc-server
 //!   (from examples/axum-react/server/)
 
 use orpc_axum::AxumRouter;
-use orpc_core::{os, router, HttpMethod, OrpcError};
+use orpc_core::{os, router, HttpMethod, OrpcError, Stream};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use tokio_stream::StreamExt;
 
 // ===== Types =====
 
@@ -46,6 +47,12 @@ struct ListPlanetsPaginatedOutput {
     next_page_param: Option<usize>,
 }
 
+#[derive(Debug, Serialize)]
+struct StreamEvent {
+    message: String,
+    count: u32,
+}
+
 // ===== Context =====
 
 #[derive(Clone)]
@@ -57,18 +64,66 @@ struct AppContext {
 
 fn sample_planets() -> Vec<Planet> {
     vec![
-        Planet { id: 1,  name: "Mercury".to_string(), description: Some("The smallest planet".to_string()) },
-        Planet { id: 2,  name: "Venus".to_string(),   description: Some("The hottest planet".to_string()) },
-        Planet { id: 3,  name: "Earth".to_string(),   description: Some("The blue planet".to_string()) },
-        Planet { id: 4,  name: "Mars".to_string(),    description: Some("The red planet".to_string()) },
-        Planet { id: 5,  name: "Jupiter".to_string(), description: Some("The largest planet".to_string()) },
-        Planet { id: 6,  name: "Saturn".to_string(),  description: Some("The ringed planet".to_string()) },
-        Planet { id: 7,  name: "Uranus".to_string(),  description: Some("The ice giant".to_string()) },
-        Planet { id: 8,  name: "Neptune".to_string(), description: Some("The windiest planet".to_string()) },
-        Planet { id: 9,  name: "Pluto".to_string(),   description: Some("The dwarf planet".to_string()) },
-        Planet { id: 10, name: "Ceres".to_string(),   description: Some("Dwarf planet in asteroid belt".to_string()) },
-        Planet { id: 11, name: "Eris".to_string(),    description: Some("Distant dwarf planet".to_string()) },
-        Planet { id: 12, name: "Haumea".to_string(),  description: Some("Egg-shaped dwarf planet".to_string()) },
+        Planet {
+            id: 1,
+            name: "Mercury".to_string(),
+            description: Some("The smallest planet".to_string()),
+        },
+        Planet {
+            id: 2,
+            name: "Venus".to_string(),
+            description: Some("The hottest planet".to_string()),
+        },
+        Planet {
+            id: 3,
+            name: "Earth".to_string(),
+            description: Some("The blue planet".to_string()),
+        },
+        Planet {
+            id: 4,
+            name: "Mars".to_string(),
+            description: Some("The red planet".to_string()),
+        },
+        Planet {
+            id: 5,
+            name: "Jupiter".to_string(),
+            description: Some("The largest planet".to_string()),
+        },
+        Planet {
+            id: 6,
+            name: "Saturn".to_string(),
+            description: Some("The ringed planet".to_string()),
+        },
+        Planet {
+            id: 7,
+            name: "Uranus".to_string(),
+            description: Some("The ice giant".to_string()),
+        },
+        Planet {
+            id: 8,
+            name: "Neptune".to_string(),
+            description: Some("The windiest planet".to_string()),
+        },
+        Planet {
+            id: 9,
+            name: "Pluto".to_string(),
+            description: Some("The dwarf planet".to_string()),
+        },
+        Planet {
+            id: 10,
+            name: "Ceres".to_string(),
+            description: Some("Dwarf planet in asteroid belt".to_string()),
+        },
+        Planet {
+            id: 11,
+            name: "Eris".to_string(),
+            description: Some("Distant dwarf planet".to_string()),
+        },
+        Planet {
+            id: 12,
+            name: "Haumea".to_string(),
+            description: Some("Egg-shaped dwarf planet".to_string()),
+        },
     ]
 }
 
@@ -152,8 +207,45 @@ async fn main() {
                         description: input.description,
                     })
                 })
-        }
+        },
 
+        stream: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Post, "/rpc/stream")
+            .output::<Stream<StreamEvent>>()
+            .handler(|_ctx, _: ()| async {
+                // Create a stream that emits 10 events, one per second
+                let stream = tokio_stream::iter(0u32..)
+                    .throttle(Duration::from_secs(1))
+                    .take(10)
+                    .map(|count| StreamEvent {
+                        message: format!("Event #{count}"),
+                        count,
+                    });
+
+                Ok(stream)
+            }),
+
+        streamAsync: os()
+            .context::<AppContext>()
+            .route(HttpMethod::Post, "/rpc/stream-async")
+            .output::<Stream<StreamEvent>>()
+            .handler(|_ctx, _: ()| async {
+                use async_stream::stream;
+
+                // Create an async stream using the async_stream crate
+                let s = stream! {
+                    for i in 0u32..15 {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        yield StreamEvent {
+                            message: format!("Async Stream Event #{i}"),
+                            count: i,
+                        };
+                    }
+                };
+
+                Ok(s)
+            })
     }
     .into_axum_router(ctx);
 
@@ -167,8 +259,10 @@ async fn main() {
     println!("   POST /rpc/planet/list-paginated");
     println!("   POST /rpc/planet/find");
     println!("   POST /rpc/planet/create");
+    println!("   POST /rpc/stream             (SSE streaming)");
+    println!("   POST /rpc/stream-async       (SSE streaming)");
     println!();
-    println!("   ⚠️  WebSocket (/ws) and SSE streaming not yet supported");
+    println!("   ⚠️  WebSocket (/ws) not yet supported");
 
     axum::serve(listener, app).await.unwrap();
 }

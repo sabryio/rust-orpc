@@ -184,6 +184,62 @@ where
     }
 }
 
+// streaming handler — for Stream<Item = T> output types
+impl<Ctx, In, T> ProcedureBuilder<Ctx, In, crate::AsyncIterator<T>, Routed>
+where
+    Ctx: Clone + Send + 'static,
+    In: serde::de::DeserializeOwned + Send + 'static,
+    T: serde::Serialize + Send + 'static,
+{
+    /// Defines a streaming handler for a procedure that outputs `Stream<Item = T>`.
+    ///
+    /// The handler must return `Result<impl Stream<Item = T>, OrpcError>`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use orpc_core::{os, HttpMethod, AsyncIterator};
+    ///
+    /// #[derive(Clone)]
+    /// struct Ctx;
+    ///
+    /// #[derive(serde::Serialize)]
+    /// struct Event { count: u32 }
+    ///
+    /// let proc = os()
+    ///     .context::<Ctx>()
+    ///     .route(HttpMethod::Post, "/stream")
+    ///     .output::<AsyncIterator<Event>>()
+    ///     .handler(|_ctx, _: ()| async {
+    ///         let stream = tokio_stream::iter(0u32..10)
+    ///             .map(|count| Event { count });
+    ///         Ok(stream)
+    ///     });
+    /// ```
+    pub fn handler<F, Fut, S>(self, handler: F) -> crate::StreamingProcedure<Ctx, In, T>
+    where
+        F: Fn(Ctx, In) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<S, OrpcError>> + Send + 'static,
+        S: futures_core::Stream<Item = T> + Send + 'static,
+    {
+        let route = self.route.expect("route is always set in Routed state");
+
+        crate::StreamingProcedure::new(
+            Arc::new(move |ctx, input| {
+                let fut = handler(ctx, input);
+                Box::pin(async move {
+                    let stream = fut.await?;
+                    Ok(Box::pin(stream)
+                        as std::pin::Pin<
+                            Box<dyn futures_core::Stream<Item = T> + Send>,
+                        >)
+                })
+            }),
+            route,
+        )
+    }
+}
+
 /// Entry point for building procedures, mirroring TypeScript oRPC's `os` pattern.
 ///
 /// # Example

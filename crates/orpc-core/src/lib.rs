@@ -32,6 +32,7 @@ mod registry;
 mod route;
 mod router;
 mod router_builder;
+mod streaming;
 
 // Re-export public API
 pub use builder::{os, ProcedureBuilder, Routed, Unrouted};
@@ -40,6 +41,34 @@ pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
 pub use route::{HttpMethod, RouteMetadata};
 pub use router::Router;
+pub use streaming::{AsyncIterator, StreamingProcedure};
+
+/// Type alias for streaming output types.
+///
+/// Use this with `.output::<Stream<T>>()` to declare a streaming procedure.
+///
+/// # Example
+///
+/// ```rust
+/// use orpc_core::{os, Stream, HttpMethod};
+///
+/// #[derive(Clone)]
+/// struct Ctx;
+///
+/// #[derive(serde::Serialize)]
+/// struct Event { count: u32 }
+///
+/// let proc = os()
+///     .context::<Ctx>()
+///     .route(HttpMethod::Post, "/stream")
+///     .output::<Stream<Event>>()
+///     .handler(|_ctx, _: ()| async {
+///         let stream = tokio_stream::iter(0u32..10)
+///             .map(|count| Event { count });
+///         Ok(stream)
+///     });
+/// ```
+pub type Stream<T> = AsyncIterator<T>;
 
 // router_builder is internal — used by router! macro only
 #[doc(hidden)]

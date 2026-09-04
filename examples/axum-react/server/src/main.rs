@@ -1,30 +1,41 @@
+mod auth_schema;
+
+use auth_schema::AppAuthSchema;
 use axum::{
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
-    },
     http::StatusCode,
     response::sse::Event,
     response::{IntoResponse, Json, Response, Sse},
-    routing::{get, post},
+    routing::post,
     Router,
+};
+use better_auth::{
+    integrations::axum::{AxumIntegration, CurrentSession, OptionalSession},
+    plugins::{EmailPasswordPlugin, SessionManagementPlugin},
+    prelude::AuthUser,
+    seaorm::{sea_orm::Database, SeaOrmStore},
+    AuthConfig, BetterAuth,
 };
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio_stream::StreamExt;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
-// ===== Simple In-Memory State =====
+// ===== State =====
 
 #[derive(Clone)]
 struct AppState {
     planets: Arc<Vec<Planet>>,
+    auth: Arc<BetterAuth<AppAuthSchema>>,
 }
 
-// ===== Types =====
+use axum::extract::FromRef;
+
+impl FromRef<AppState> for Arc<BetterAuth<AppAuthSchema>> {
+    fn from_ref(state: &AppState) -> Self {
+        state.auth.clone()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Planet {
@@ -57,7 +68,7 @@ struct ListPlanetsPaginatedOutput {
     next_page_param: Option<usize>,
 }
 
-// ===== Simple RPC Error Type =====
+// ===== Error =====
 
 #[derive(Debug, Serialize)]
 struct RpcError {
@@ -72,14 +83,12 @@ impl RpcError {
             message: message.into(),
         }
     }
-
     fn bad_request(message: impl Into<String>) -> Self {
         Self {
             code: "BAD_REQUEST".into(),
             message: message.into(),
         }
     }
-
     fn internal_error(message: impl Into<String>) -> Self {
         Self {
             code: "INTERNAL_ERROR".into(),
@@ -93,32 +102,38 @@ impl IntoResponse for RpcError {
         let status = match self.code.as_str() {
             "NOT_FOUND" => StatusCode::NOT_FOUND,
             "BAD_REQUEST" => StatusCode::BAD_REQUEST,
-            "INTERNAL_ERROR" => StatusCode::INTERNAL_SERVER_ERROR,
+            "AUTHENTICATION_REQUIRED" => StatusCode::UNAUTHORIZED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-
         (status, Json(self)).into_response()
     }
 }
 
-// ===== RPC Handlers =====
+// ===== Handlers =====
 
-async fn ping() -> Json<String> {
-    Json("pong".to_string())
+async fn ping(session: OptionalSession<AppAuthSchema>) -> Json<String> {
+    match session.0 {
+        Some(s) => Json(format!(
+            "pong (authenticated as {})",
+            s.user.email().unwrap_or("unknown")
+        )),
+        None => Json("pong (anonymous)".to_string()),
+    }
 }
 
-async fn list_planets(State(state): State<AppState>) -> Json<Vec<Planet>> {
+async fn list_planets(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    _session: OptionalSession<AppAuthSchema>,
+) -> Json<Vec<Planet>> {
     Json(state.planets.to_vec())
 }
 
 async fn list_planets_paginated(
-    State(state): State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    _session: OptionalSession<AppAuthSchema>,
     Json(input): Json<ListPlanetsPaginatedInput>,
 ) -> Json<ListPlanetsPaginatedOutput> {
     let offset = input.offset.unwrap_or(0);
-
-    // Note: Offset pagination is O(n) for skipping — acceptable for demo with 12 items.
-    // For large datasets, consider cursor-based pagination.
     let items: Vec<Planet> = state
         .planets
         .iter()
@@ -126,13 +141,11 @@ async fn list_planets_paginated(
         .take(input.limit)
         .cloned()
         .collect();
-
     let next_page_param = if offset + input.limit < state.planets.len() {
         Some(offset + input.limit)
     } else {
         None
     };
-
     Json(ListPlanetsPaginatedOutput {
         items,
         next_page_param,
@@ -140,7 +153,8 @@ async fn list_planets_paginated(
 }
 
 async fn find_planet(
-    State(state): State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    _session: OptionalSession<AppAuthSchema>,
     Json(input): Json<FindPlanetInput>,
 ) -> Result<Json<Planet>, RpcError> {
     state
@@ -153,27 +167,27 @@ async fn find_planet(
 }
 
 async fn create_planet(
-    State(state): State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    // CurrentSession rejects the request automatically if not signed in
+    session: CurrentSession<AppAuthSchema>,
     Json(input): Json<CreatePlanetInput>,
 ) -> Result<Json<Planet>, RpcError> {
+    let _user = session.user;
+
     if input.name.trim().is_empty() {
         return Err(RpcError::bad_request("Planet name cannot be empty"));
     }
-
     if input.name.len() > 100 {
         return Err(RpcError::internal_error(
-            "Planet name is too long (max 100 characters)",
+            "Planet name too long (max 100 characters)",
         ));
     }
 
-    // In a real app, this would insert into a database
-    let new_planet = Planet {
+    Ok(Json(Planet {
         id: state.planets.len() as i32 + 1,
         name: input.name,
         description: input.description,
-    };
-
-    Ok(Json(new_planet))
+    }))
 }
 
 // ===== Streaming =====
@@ -185,8 +199,6 @@ struct StreamEvent {
 }
 
 async fn stream_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    // oRPC OpenAPIHandler sends an initial empty comment to flush headers
-    // immediately so the client starts iterating without waiting for the first event.
     let initial = tokio_stream::iter([Ok(Event::default().comment(""))]);
 
     let events = tokio_stream::iter(0u32..)
@@ -198,11 +210,6 @@ async fn stream_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
                 count,
             })
             .unwrap();
-
-            // oRPC reads the SSE `event:` field via EventStreamDecoderStream:
-            //   event: message  → yield (data event)
-            //   event: error    → throw (error event)
-            //   event: close    → end of stream (return)
             Ok(Event::default()
                 .event("message")
                 .id(count.to_string())
@@ -224,27 +231,20 @@ async fn stream_async() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     use async_stream::stream;
 
     let s = stream! {
-        // Initial comment to flush headers immediately
         yield Ok(Event::default().comment(""));
-
-        // Yield 15 events, one per second
         for i in 0u32..15 {
             tokio::time::sleep(Duration::from_secs(1)).await;
-
             let payload = serde_json::to_string(&StreamEvent {
                 message: format!("Async Stream Event #{i}"),
                 count: i,
             })
             .unwrap();
-
             yield Ok(Event::default()
                 .event("message")
                 .id(i.to_string())
                 .retry(Duration::from_secs(5))
                 .data(payload));
         }
-
-        // Final close event
         yield Ok(Event::default().event("close").data(""));
     };
 
@@ -255,431 +255,157 @@ async fn stream_async() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     )
 }
 
-// ===== WebSocket — oRPC Peer Protocol =====
-
-/// The RPC body envelope: { "json": <value>, "meta": [] }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RpcBody {
-    json: Value,
-    #[serde(default)]
-    meta: Vec<Value>,
-}
-
-/// Incoming request payload inside a peer message
-#[derive(Debug, Deserialize)]
-struct PeerRequestJson {
-    url: String,
-    #[serde(default = "default_method")]
-    method: String,
-    body: Option<RpcBody>,
-}
-
-fn default_method() -> String {
-    "POST".to_string()
-}
-
-/// A peer message sent by the client
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-enum ClientMessage {
-    Request { id: String, json: PeerRequestJson },
-    Cancel { id: String },
-}
-
-/// A peer message sent by the server
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-enum ServerMessage {
-    Response {
-        id: String,
-        json: ServerResponseJson,
-    },
-    EventStream {
-        id: String,
-        json: EventStreamJson,
-    },
-    Cancel {
-        id: String,
-    },
-}
-
-#[derive(Debug, Serialize)]
-struct ServerResponseJson {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    headers: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<RpcBody>,
-}
-
-#[derive(Debug, Serialize)]
-struct EventStreamJson {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    event: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<Value>,
-}
-
-type WsSender = Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>;
-
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
-}
-
-async fn handle_socket(socket: WebSocket, state: AppState) {
-    use futures::StreamExt as FuturesStreamExt;
-
-    let (sink, mut stream) = socket.split();
-    let sender: WsSender = Arc::new(Mutex::new(sink));
-
-    // Track spawned tasks so we can abort on cancel
-    let tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    while let Some(Ok(msg)) = futures::StreamExt::next(&mut stream).await {
-        let text = match msg {
-            Message::Text(t) => t,
-            Message::Close(_) => break,
-            _ => continue,
-        };
-
-        let client_msg: ClientMessage = match serde_json::from_str(&text) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        match client_msg {
-            ClientMessage::Cancel { id } => {
-                if let Some(handle) = tasks.lock().await.remove(&id) {
-                    handle.abort();
-                }
-            }
-            ClientMessage::Request { id, json: req_json } => {
-                let sender_clone = Arc::clone(&sender);
-                let state_clone = state.clone();
-                let id_clone = id.clone();
-                let tasks_clone = Arc::clone(&tasks);
-
-                let handle = tokio::spawn(async move {
-                    dispatch_ws(id_clone.clone(), req_json, sender_clone, state_clone).await;
-                    tasks_clone.lock().await.remove(&id_clone);
-                });
-
-                tasks.lock().await.insert(id, handle);
-            }
-        }
-    }
-
-    // Abort all in-flight tasks when connection closes
-    let mut locked = tasks.lock().await;
-    for (_, handle) in locked.drain() {
-        handle.abort();
-    }
-}
-
-async fn send_ws(sender: &WsSender, msg: ServerMessage) {
-    use futures::SinkExt;
-    if let Ok(text) = serde_json::to_string(&msg) {
-        let _ = sender.lock().await.send(Message::Text(text.into())).await;
-    }
-}
-
-async fn dispatch_ws(id: String, req: PeerRequestJson, sender: WsSender, state: AppState) {
-    // Strip /rpc prefix and split into path segments
-    let path = req.url.trim_start_matches("/rpc");
-    let input = req.body.map(|b| b.json);
-
-    match path {
-        "/ping" => {
-            send_ws(
-                &sender,
-                ServerMessage::Response {
-                    id,
-                    json: ServerResponseJson {
-                        status: None,
-                        headers: None,
-                        body: Some(RpcBody {
-                            json: Value::String("pong".to_string()),
-                            meta: vec![],
-                        }),
-                    },
-                },
-            )
-            .await;
-        }
-
-        "/planet/list" => {
-            let planets: Vec<Value> = state
-                .planets
-                .iter()
-                .map(|p| serde_json::to_value(p).unwrap())
-                .collect();
-            send_ws(
-                &sender,
-                ServerMessage::Response {
-                    id,
-                    json: ServerResponseJson {
-                        status: None,
-                        headers: None,
-                        body: Some(RpcBody {
-                            json: Value::Array(planets),
-                            meta: vec![],
-                        }),
-                    },
-                },
-            )
-            .await;
-        }
-
-        "/planet/find" => {
-            let result: Result<Value, RpcError> = (|| {
-                let input = input.ok_or_else(|| RpcError::bad_request("Missing input"))?;
-                let id_val = input
-                    .get("id")
-                    .and_then(|v| v.as_i64())
-                    .ok_or_else(|| RpcError::bad_request("Missing id"))?
-                    as i32;
-                state
-                    .planets
-                    .iter()
-                    .find(|p| p.id == id_val)
-                    .map(|p| serde_json::to_value(p).unwrap())
-                    .ok_or_else(|| {
-                        RpcError::not_found(format!("Planet with id {id_val} not found"))
-                    })
-            })();
-
-            match result {
-                Ok(val) => {
-                    send_ws(
-                        &sender,
-                        ServerMessage::Response {
-                            id,
-                            json: ServerResponseJson {
-                                status: None,
-                                headers: None,
-                                body: Some(RpcBody {
-                                    json: val,
-                                    meta: vec![],
-                                }),
-                            },
-                        },
-                    )
-                    .await
-                }
-                Err(e) => {
-                    send_ws(
-                        &sender,
-                        ServerMessage::Response {
-                            id,
-                            json: ServerResponseJson {
-                                status: Some(if e.code == "NOT_FOUND" { 404 } else { 400 }),
-                                headers: None,
-                                body: Some(RpcBody {
-                                    json: serde_json::json!({
-                                        "defined": false,
-                                        "inferable": false,
-                                        "code": e.code,
-                                        "message": e.message,
-                                        "data": null
-                                    }),
-                                    meta: vec![],
-                                }),
-                            },
-                        },
-                    )
-                    .await
-                }
-            }
-        }
-
-        "/stream-async" | "/streamAsync" => {
-            // Send initial response with event-stream header — no body
-            let mut headers = HashMap::new();
-            headers.insert("standard-server".to_string(), "event-stream".to_string());
-
-            send_ws(
-                &sender,
-                ServerMessage::Response {
-                    id: id.clone(),
-                    json: ServerResponseJson {
-                        status: None,
-                        headers: Some(headers),
-                        body: None,
-                    },
-                },
-            )
-            .await;
-
-            // Stream events
-            for i in 0u32..15 {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-
-                let data = serde_json::json!({
-                    "json": {
-                        "message": format!("WS Async Stream Event #{i}"),
-                        "count": i
-                    },
-                    "meta": []
-                });
-
-                send_ws(
-                    &sender,
-                    ServerMessage::EventStream {
-                        id: id.clone(),
-                        json: EventStreamJson {
-                            event: None, // None = "message"
-                            data: Some(data),
-                        },
-                    },
-                )
-                .await;
-            }
-
-            // Close event
-            send_ws(
-                &sender,
-                ServerMessage::EventStream {
-                    id,
-                    json: EventStreamJson {
-                        event: Some("close".to_string()),
-                        data: None,
-                    },
-                },
-            )
-            .await;
-        }
-
-        _ => {
-            send_ws(
-                &sender,
-                ServerMessage::Response {
-                    id,
-                    json: ServerResponseJson {
-                        status: Some(404),
-                        headers: None,
-                        body: Some(RpcBody {
-                            json: serde_json::json!({
-                                "defined": false,
-                                "inferable": false,
-                                "code": "NOT_FOUND",
-                                "message": format!("No procedure at {path}"),
-                                "data": null
-                            }),
-                            meta: vec![],
-                        }),
-                    },
-                },
-            )
-            .await;
-        }
-    }
-}
-
 // ===== Main =====
 
+fn sample_planets() -> Vec<Planet> {
+    vec![
+        Planet {
+            id: 1,
+            name: "Mercury".into(),
+            description: Some("The smallest planet".into()),
+        },
+        Planet {
+            id: 2,
+            name: "Venus".into(),
+            description: Some("The hottest planet".into()),
+        },
+        Planet {
+            id: 3,
+            name: "Earth".into(),
+            description: Some("The blue planet".into()),
+        },
+        Planet {
+            id: 4,
+            name: "Mars".into(),
+            description: Some("The red planet".into()),
+        },
+        Planet {
+            id: 5,
+            name: "Jupiter".into(),
+            description: Some("The largest planet".into()),
+        },
+        Planet {
+            id: 6,
+            name: "Saturn".into(),
+            description: Some("The ringed planet".into()),
+        },
+        Planet {
+            id: 7,
+            name: "Uranus".into(),
+            description: Some("The ice giant".into()),
+        },
+        Planet {
+            id: 8,
+            name: "Neptune".into(),
+            description: Some("The windiest planet".into()),
+        },
+        Planet {
+            id: 9,
+            name: "Pluto".into(),
+            description: Some("The dwarf planet".into()),
+        },
+        Planet {
+            id: 10,
+            name: "Ceres".into(),
+            description: Some("Dwarf planet in asteroid belt".into()),
+        },
+        Planet {
+            id: 11,
+            name: "Eris".into(),
+            description: Some("Distant dwarf planet".into()),
+        },
+        Planet {
+            id: 12,
+            name: "Haumea".into(),
+            description: Some("Egg-shaped dwarf planet".into()),
+        },
+    ]
+}
+
 #[tokio::main]
-async fn main() {
-    // Initialize state with sample data
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let database = Database::connect("sqlite::memory:").await?;
+    auth_schema::run_app_migrations(&database).await?;
+
+    let secret = "your-very-secure-secret-key-at-least-32-chars-long";
+    let config = AuthConfig::new(secret)
+        .base_url("http://localhost:3000")
+        .password_min_length(8);
+
+    let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
+
+    let auth = Arc::new(
+        BetterAuth::<AppAuthSchema>::new(config)
+            .store(store)
+            .plugin(EmailPasswordPlugin::new().enable_signup(true))
+            .plugin(SessionManagementPlugin::new())
+            .build()
+            .await?,
+    );
+
     let state = AppState {
-        planets: Arc::new(vec![
-            Planet {
-                id: 1,
-                name: "Mercury".to_string(),
-                description: Some("The smallest planet".to_string()),
-            },
-            Planet {
-                id: 2,
-                name: "Venus".to_string(),
-                description: Some("The hottest planet".to_string()),
-            },
-            Planet {
-                id: 3,
-                name: "Earth".to_string(),
-                description: Some("The blue planet".to_string()),
-            },
-            Planet {
-                id: 4,
-                name: "Mars".to_string(),
-                description: Some("The red planet".to_string()),
-            },
-            Planet {
-                id: 5,
-                name: "Jupiter".to_string(),
-                description: Some("The largest planet".to_string()),
-            },
-            Planet {
-                id: 6,
-                name: "Saturn".to_string(),
-                description: Some("The ringed planet".to_string()),
-            },
-            Planet {
-                id: 7,
-                name: "Uranus".to_string(),
-                description: Some("The ice giant".to_string()),
-            },
-            Planet {
-                id: 8,
-                name: "Neptune".to_string(),
-                description: Some("The windiest planet".to_string()),
-            },
-            Planet {
-                id: 9,
-                name: "Pluto".to_string(),
-                description: Some("The dwarf planet".to_string()),
-            },
-            Planet {
-                id: 10,
-                name: "Ceres".to_string(),
-                description: Some("Dwarf planet in asteroid belt".to_string()),
-            },
-            Planet {
-                id: 11,
-                name: "Eris".to_string(),
-                description: Some("Distant dwarf planet".to_string()),
-            },
-            Planet {
-                id: 12,
-                name: "Haumea".to_string(),
-                description: Some("Egg-shaped dwarf planet".to_string()),
-            },
-        ]),
+        planets: Arc::new(sample_planets()),
+        auth: auth.clone(),
     };
 
-    // Build our application with routes
+    // Resolve auth_router's state before nesting into AppState router
+    let auth_router = auth.clone().axum_router().with_state(auth.clone());
+
+    let rpc_router = Router::new()
+        .route("/ping", post(ping))
+        .route("/planet/list", post(list_planets))
+        .route("/planet/list-paginated", post(list_planets_paginated))
+        .route("/planet/find", post(find_planet))
+        .route("/planet/create", post(create_planet))
+        .route("/stream", post(stream_events))
+        .route("/stream-async", post(stream_async));
+
     let app = Router::new()
-        .route("/rpc/ping", post(ping))
-        .route("/rpc/planet/list", post(list_planets))
-        .route("/rpc/planet/list-paginated", post(list_planets_paginated))
-        .route("/rpc/planet/find", post(find_planet))
-        .route("/rpc/planet/create", post(create_planet))
-        .route("/rpc/stream", post(stream_events))
-        .route("/rpc/stream-async", post(stream_async))
-        .route("/ws", get(ws_handler))
-        // Add CORS middleware
+        .nest("/api/auth", auth_router)
+        .nest("/rpc", rpc_router)
+        .with_state(state)
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-        .with_state(state);
+                .allow_origin([
+                    "http://localhost:3000".parse::<axum::http::HeaderValue>()?,
+                    "http://127.0.0.1:3000".parse::<axum::http::HeaderValue>()?,
+                    "http://localhost:5173".parse::<axum::http::HeaderValue>()?,
+                    "http://127.0.0.1:5173".parse::<axum::http::HeaderValue>()?,
+                ])
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::ACCEPT,
+                ])
+                .allow_credentials(true),
+        );
 
-    // Run the server
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001").await?;
 
     println!("🚀 Server running on http://127.0.0.1:3001");
-    println!("   - POST /rpc/ping");
-    println!("   - POST /rpc/planet/list");
-    println!("   - POST /rpc/planet/list-paginated");
-    println!("   - POST /rpc/planet/find");
-    println!("   - POST /rpc/planet/create");
-    println!("   - POST /rpc/stream");
-    println!("   - POST /rpc/stream-async");
-    println!("   - WS   /ws  (oRPC peer protocol)");
+    println!();
+    println!("📚 Better Auth  (under /api/auth):");
+    println!("   POST /api/auth/sign-up/email");
+    println!("   POST /api/auth/sign-in/email");
+    println!("   POST /api/auth/sign-out");
+    println!("   GET  /api/auth/get-session");
+    println!();
+    println!("🔧 oRPC  (under /rpc):");
+    println!("   POST /rpc/ping                  (public)");
+    println!("   POST /rpc/planet/list           (public)");
+    println!("   POST /rpc/planet/list-paginated (public)");
+    println!("   POST /rpc/planet/find           (public)");
+    println!("   POST /rpc/planet/create         (requires auth)");
+    println!("   POST /rpc/stream                (public)");
+    println!("   POST /rpc/stream-async          (public)");
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }

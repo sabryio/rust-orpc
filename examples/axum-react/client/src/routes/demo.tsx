@@ -4,8 +4,6 @@ import {
   getEventMeta,
   isInferableError,
   orpc,
-  ORPCError,
-  wsClient,
 } from "#/rpc";
 import {
   QueryClient,
@@ -81,17 +79,6 @@ function Home() {
               <StreamAsyncConsumeIterator />
               <StreamAsyncStreamed />
               <StreamAsyncLive />
-            </div>
-          </section>
-
-          {/* WebSocket Section */}
-          <section className="mt-16">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
-              WebSocket (oRPC Peer Protocol)
-            </h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <WsPlanetFind />
-              <WsStreamAsync />
             </div>
           </section>
         </div>
@@ -365,7 +352,7 @@ function CreatePlanet() {
               )}
               {mutation.error.code !== "BAD_REQUEST" &&
                 mutation.error.code !== "INTERNAL_ERROR" && (
-                  <p className="text-red-800">{mutation.error}</p>
+                  <p className="text-red-800">{mutation.error.message}</p>
                 )}
             </>
           ) : (
@@ -875,213 +862,6 @@ function StreamAsyncLive() {
           <div className="mt-2 text-xs text-neutral-400 font-mono animate-pulse">
             ▸ waiting for update
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// WebSocket — direct call pattern (no TanStack Query)
-function WsPlanetFind() {
-  const [id, setId] = useState<number>(1);
-  const [result, setResult] = useState<{
-    id: number;
-    name: string;
-    description?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>("");
-
-  const handleFetch = async () => {
-    setLoading(true);
-    setError("");
-    setResult(null);
-    try {
-      const planet = await wsClient.planet.find({ id });
-      setResult(planet);
-    } catch (err) {
-      setError(
-        err instanceof ORPCError ? `${err.code}: ${err.message}` : String(err),
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="bg-white border border-neutral-200 rounded-lg p-6">
-      <div className="flex items-baseline justify-between mb-6">
-        <div>
-          <h3 className="text-lg font-semibold text-neutral-900">
-            planet.find
-          </h3>
-          <p className="text-sm text-neutral-500 mt-1">
-            Direct call • WebSocket transport
-          </p>
-        </div>
-        <code className="text-xs font-mono text-neutral-400">RPCLink</code>
-      </div>
-
-      <div className="flex items-center gap-3 mb-6">
-        <input
-          type="number"
-          value={id}
-          min={1}
-          onChange={(e) => setId(Number(e.target.value))}
-          className="w-20 px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
-        />
-        <button
-          onClick={handleFetch}
-          disabled={loading}
-          className="px-4 py-2 bg-neutral-900 text-white text-sm font-medium rounded hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? "Fetching…" : "Fetch"}
-        </button>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800 mb-4">
-          {error}
-        </div>
-      )}
-
-      {result && (
-        <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-lg">
-          <div className="flex items-start justify-between mb-1">
-            <h4 className="text-sm font-medium text-neutral-900">
-              {result.name}
-            </h4>
-            <span className="text-xs font-mono text-neutral-400">
-              #{result.id}
-            </span>
-          </div>
-          {result.description && (
-            <p className="text-sm text-neutral-500 mt-1">
-              {result.description}
-            </p>
-          )}
-        </div>
-      )}
-
-      {!result && !loading && !error && (
-        <p className="text-sm text-neutral-400">Enter an ID and press Fetch.</p>
-      )}
-    </div>
-  );
-}
-
-// WebSocket — streaming with consumeAsyncIterator
-function WsStreamAsync() {
-  const [events, setEvents] = useState<{ message: string; count: number }[]>(
-    [],
-  );
-  const [streaming, setStreaming] = useState(false);
-  const [finished, setFinished] = useState(false);
-  const [error, setError] = useState<string>("");
-  const cancelRef = useRef<(() => Promise<void>) | null>(null);
-
-  const handleStart = () => {
-    setEvents([]);
-    setError("");
-    setFinished(false);
-    setStreaming(true);
-
-    const cancel = consumeAsyncIterator(wsClient.streamAsync(), {
-      onEvent: (event) => {
-        setEvents((prev) => [...prev, event]);
-      },
-      onError: (err) => {
-        setError(
-          err instanceof ORPCError
-            ? `${err.code}: ${err.message}`
-            : String(err),
-        );
-        setStreaming(false);
-      },
-      onFinish: () => {
-        setFinished(true);
-        setStreaming(false);
-        cancelRef.current = null;
-      },
-    });
-
-    cancelRef.current = cancel;
-  };
-
-  const handleStop = async () => {
-    if (cancelRef.current) await cancelRef.current();
-  };
-
-  useEffect(() => {
-    return () => {
-      if (cancelRef.current) void cancelRef.current();
-    };
-  }, []);
-
-  return (
-    <div className="bg-white border border-neutral-200 rounded-lg p-6">
-      <div className="flex items-baseline justify-between mb-6">
-        <div>
-          <h3 className="text-lg font-semibold text-neutral-900">
-            streamAsync
-          </h3>
-          <p className="text-sm text-neutral-500 mt-1">
-            consumeAsyncIterator • WebSocket transport
-          </p>
-        </div>
-        <code className="text-xs font-mono text-neutral-400">RPCLink</code>
-      </div>
-
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={handleStart}
-          disabled={streaming}
-          className="px-4 py-2 bg-neutral-900 text-white text-sm font-medium rounded hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {streaming ? "Streaming" : "Start"}
-        </button>
-        <button
-          onClick={handleStop}
-          disabled={!streaming}
-          className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 text-sm font-medium rounded hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-          {error}
-        </div>
-      )}
-
-      {finished && !streaming && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-          Stream completed
-        </div>
-      )}
-
-      <div className="space-y-0.5 max-h-64 overflow-y-auto">
-        {events.map((e, idx) => (
-          <div
-            key={idx}
-            className="flex items-center gap-3 p-2 font-mono text-xs bg-neutral-50 text-neutral-700 rounded border border-transparent hover:border-neutral-200 transition-colors"
-          >
-            <span className="text-neutral-400 tabular-nums w-6 text-right">
-              {e.count}
-            </span>
-            <span className="flex-1">{e.message}</span>
-          </div>
-        ))}
-        {streaming && events.length > 0 && (
-          <div className="p-2 text-xs text-neutral-400 font-mono animate-pulse">
-            ▸ waiting
-          </div>
-        )}
-        {!streaming && events.length === 0 && (
-          <p className="text-sm text-neutral-400 py-8 text-center">
-            No events. Press Start.
-          </p>
         )}
       </div>
     </div>

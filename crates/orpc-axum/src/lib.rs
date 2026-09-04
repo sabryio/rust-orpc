@@ -3,7 +3,7 @@
 //! Axum integration for `orpc-core` — converts type-safe RPC procedure routers
 //! into Axum routers using each procedure's declared route metadata.
 //!
-//! ## Example
+//! ## Basic usage
 //!
 //! ```rust,no_run
 //! use orpc_core::{os, router, HttpMethod};
@@ -22,6 +22,49 @@
 //!             .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
 //!     }
 //!     .into_axum_router(AppContext);
+//!
+//!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+//!     axum::serve(listener, app).await.unwrap();
+//! }
+//! ```
+//!
+//! ## Per-request context enrichment (e.g. auth)
+//!
+//! Use `into_axum_router_with` when Axum middleware places per-request data
+//! (such as an authenticated user) into request extensions and your context
+//! needs to reflect it on every call:
+//!
+//! ```rust,no_run
+//! use axum::http::Extensions;
+//! use orpc_core::{os, router, HttpMethod};
+//! use orpc_axum::AxumRouter;
+//!
+//! #[derive(Clone)]
+//! struct User { id: String }
+//!
+//! #[derive(Clone)]
+//! struct AppContext { current_user: Option<User> }
+//!
+//! fn extract_user(mut ctx: AppContext, ext: &Extensions) -> AppContext {
+//!     ctx.current_user = ext.get::<User>().cloned();
+//!     ctx
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let base_ctx = AppContext { current_user: None };
+//!
+//!     let app = router! {
+//!         ping: os()
+//!             .context::<AppContext>()
+//!             .route(HttpMethod::Get, "/ping")
+//!             .output::<String>()
+//!             .handler(|ctx, _: ()| async move {
+//!                 let who = ctx.current_user.map(|u| u.id).unwrap_or_else(|| "anon".into());
+//!                 Ok(format!("pong from {who}"))
+//!             })
+//!     }
+//!     .into_axum_router_with(base_ctx, extract_user);
 //!
 //!     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
 //!     axum::serve(listener, app).await.unwrap();
@@ -59,60 +102,42 @@ where
     where
         Self: Sized,
     {
-        let mut registry = ProcedureRegistry::new();
-        self.register_procedures("", &mut registry);
+        build_axum_router(self, ctx, |ctx, _| ctx)
+    }
 
-        let registry = Arc::new(registry);
-        let context_arc = Arc::new(ctx);
-        let mut axum_router = AxumRouterType::new();
-
-        // Collect (path, method) — registry is keyed by route path
-        let routes: Vec<(String, HttpMethod, String)> = registry
-            .routes()
-            .map(|(key, meta)| (key.clone(), meta.method.clone(), meta.path.clone()))
-            .collect();
-
-        for (route_path, method, http_path) in routes {
-            let registry_clone = Arc::clone(&registry);
-            let route_path_clone = route_path.clone();
-
-            // POST/PUT/PATCH: body is optional — missing body treated as null input
-            let handler =
-                move |state: State<Arc<Ctx>>,
-                      body: Option<axum::extract::Json<serde_json::Value>>| {
-                    let registry = Arc::clone(&registry_clone);
-                    let key = route_path_clone.clone();
-                    let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
-                    async move { handle_procedure(registry, state.0, key, input).await }
-                };
-
-            // GET/DELETE: no body
-            let registry_clone2 = Arc::clone(&registry);
-            let route_path_clone2 = route_path.clone();
-
-            let handler_no_body = move |state: State<Arc<Ctx>>| {
-                let registry = Arc::clone(&registry_clone2);
-                let key = route_path_clone2.clone();
-                async move { handle_procedure(registry, state.0, key, serde_json::Value::Null).await }
-            };
-
-            axum_router = match method {
-                HttpMethod::Get => axum_router.route(&http_path, get(handler_no_body)),
-                HttpMethod::Post => axum_router.route(&http_path, post(handler)),
-                HttpMethod::Put => axum_router.route(&http_path, put(handler)),
-                HttpMethod::Patch => axum_router.route(&http_path, patch(handler)),
-                HttpMethod::Delete => axum_router.route(&http_path, delete(handler_no_body)),
-            };
-        }
-
-        axum_router
-            .layer(
-                CorsLayer::new()
-                    .allow_origin(Any)
-                    .allow_methods(Any)
-                    .allow_headers(Any),
-            )
-            .with_state(context_arc)
+    /// Converts this orpc router into an Axum router with a per-request
+    /// context extractor.
+    ///
+    /// The `extractor` function is called on every request with a clone of
+    /// the base context and the request's [`axum::http::Extensions`]. It
+    /// returns a new context enriched with per-request data (e.g. an
+    /// authenticated user placed there by middleware).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use axum::http::Extensions;
+    /// use orpc_axum::AxumRouter;
+    ///
+    /// #[derive(Clone)]
+    /// struct User { id: String }
+    ///
+    /// #[derive(Clone)]
+    /// struct AppContext { current_user: Option<User> }
+    ///
+    /// fn extract_user(mut ctx: AppContext, ext: &Extensions) -> AppContext {
+    ///     ctx.current_user = ext.get::<User>().cloned();
+    ///     ctx
+    /// }
+    ///
+    /// // router!{ ... }.into_axum_router_with(base_ctx, extract_user);
+    /// ```
+    fn into_axum_router_with<F>(self, ctx: Ctx, extractor: F) -> AxumRouterType
+    where
+        Self: Sized,
+        F: Fn(Ctx, &axum::http::Extensions) -> Ctx + Clone + Send + Sync + 'static,
+    {
+        build_axum_router(self, ctx, extractor)
     }
 }
 
@@ -124,16 +149,81 @@ where
 {
 }
 
+fn build_axum_router<R, Ctx, F>(router: R, ctx: Ctx, extractor: F) -> AxumRouterType
+where
+    R: Router<Ctx>,
+    Ctx: Clone + Send + Sync + 'static,
+    F: Fn(Ctx, &axum::http::Extensions) -> Ctx + Clone + Send + Sync + 'static,
+{
+    let mut registry = ProcedureRegistry::new();
+    router.register_procedures("", &mut registry);
+
+    let registry = Arc::new(registry);
+    let context_arc = Arc::new(ctx);
+    let mut axum_router = AxumRouterType::new();
+
+    let routes: Vec<(String, HttpMethod, String)> = registry
+        .routes()
+        .map(|(key, meta)| (key.clone(), meta.method.clone(), meta.path.clone()))
+        .collect();
+
+    for (route_path, method, http_path) in routes {
+        let registry_clone = Arc::clone(&registry);
+        let route_path_clone = route_path.clone();
+        let extractor_clone = extractor.clone();
+
+        // POST/PUT/PATCH: body is optional — missing body treated as null input
+        let handler =
+            move |state: State<Arc<Ctx>>,
+                  extensions: axum::http::Extensions,
+                  body: Option<axum::extract::Json<serde_json::Value>>| {
+                let registry = Arc::clone(&registry_clone);
+                let key = route_path_clone.clone();
+                let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
+                let ctx = extractor_clone((*state.0).clone(), &extensions);
+                async move { handle_procedure(registry, ctx, key, input).await }
+            };
+
+        let registry_clone2 = Arc::clone(&registry);
+        let route_path_clone2 = route_path.clone();
+        let extractor_clone2 = extractor.clone();
+
+        // GET/DELETE: no body
+        let handler_no_body = move |state: State<Arc<Ctx>>, extensions: axum::http::Extensions| {
+            let registry = Arc::clone(&registry_clone2);
+            let key = route_path_clone2.clone();
+            let ctx = extractor_clone2((*state.0).clone(), &extensions);
+            async move { handle_procedure(registry, ctx, key, serde_json::Value::Null).await }
+        };
+
+        axum_router = match method {
+            HttpMethod::Get => axum_router.route(&http_path, get(handler_no_body)),
+            HttpMethod::Post => axum_router.route(&http_path, post(handler)),
+            HttpMethod::Put => axum_router.route(&http_path, put(handler)),
+            HttpMethod::Patch => axum_router.route(&http_path, patch(handler)),
+            HttpMethod::Delete => axum_router.route(&http_path, delete(handler_no_body)),
+        };
+    }
+
+    axum_router
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .with_state(context_arc)
+}
+
 async fn handle_procedure<Ctx>(
     registry: Arc<ProcedureRegistry<Ctx>>,
-    context: Arc<Ctx>,
+    ctx: Ctx,
     key: String,
     input: serde_json::Value,
 ) -> Result<Response, AxumError>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
-    let ctx = (*context).clone();
     let result = registry.call(&key, ctx, input).await?;
 
     match result {

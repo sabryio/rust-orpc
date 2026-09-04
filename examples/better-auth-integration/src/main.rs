@@ -158,6 +158,19 @@ fn sample_planets() -> Vec<Planet> {
     ]
 }
 
+// ===== Context Extractor =====
+
+/// Extract authenticated user and create context with it
+/// This is called by orpc-axum for each request
+fn extract_context(base_ctx: AppContext, extensions: &axum::http::Extensions) -> AppContext {
+    // Check if auth middleware added a user to extensions
+    if let Some(user) = extensions.get::<AuthenticatedUser>() {
+        base_ctx.with_user(user.clone())
+    } else {
+        base_ctx
+    }
+}
+
 // ===== Middleware =====
 
 /// Middleware that extracts Better Auth session and adds it to extensions
@@ -319,7 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }))
             })
     }
-    .into_axum_router(base_ctx);
+    .into_axum_router_with(base_ctx, extract_context);
 
     // Get Better Auth's router (it needs state)
     let auth_router = auth.clone().axum_router();
@@ -327,20 +340,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build complete app with Better Auth routes and orpc routes
     // We need to handle state carefully since auth_router needs Arc<BetterAuth> state
     // but orpc_router has no state
+    // Auth middleware must wrap the orpc router directly so its extensions
+    // are visible to the context extractor on every /rpc request.
+    let orpc_with_auth = orpc_router.layer(middleware::from_fn_with_state(
+        auth.clone(),
+        auth_middleware,
+    ));
+
     let app = Router::new()
-        // Mount orpc routes first (stateless)
-        .nest("/rpc", orpc_router)
-        // Then merge with auth router using merge (instead of nest)
+        .nest("/rpc", orpc_with_auth)
         .merge(
             Router::new()
                 .nest("/api/auth", auth_router)
                 .with_state(auth.clone()),
         )
-        // Add auth middleware
-        .layer(middleware::from_fn_with_state(
-            auth.clone(),
-            auth_middleware,
-        ))
         // CORS for development
         .layer(
             CorsLayer::new()

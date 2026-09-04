@@ -12,7 +12,7 @@ name = "orpc-server"
 path = "src/orpc_server.rs"
 
 [dependencies]
-axum = { version = "0.8.9", features = ["macros", "ws"] }
+axum = { version = "0.8.9", features = ["macros"] }
 tokio = { version = "1.53.1", features = ["full"] }
 tokio-stream = "0.1.19"
 async-stream = "0.3"
@@ -23,3 +23,15 @@ tower-http = { version = "0.7.1", features = ["cors"] }
 futures = "0.3"
 orpc-core = { path = "../../../crates/orpc-core" }
 orpc-axum = { path = "../../../crates/orpc-axum" }
+better-auth = { version = "1.0.0-alpha.2", features = ["axum", "seaorm2"] }
+sea-orm = { version = "2.0.0-rc.37", default-features = false, features = [
+    "sqlx-sqlite",
+    "runtime-tokio",
+    "macros",
+    "with-chrono",
+    "with-json",
+    "with-uuid",
+] }
+
+# Utilities
+chrono = "0.4"

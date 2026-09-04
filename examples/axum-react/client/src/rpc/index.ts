@@ -1,5 +1,4 @@
 import { createORPCClient, isInferableError, ORPCError } from "@orpc/client";
-import { RPCLink } from "@orpc/client/websocket";
 import { OpenAPILink } from "@orpc/openapi/fetch";
 import { openapi } from "@orpc/openapi";
 import { oc, type RouterContractClient } from "@orpc/contract";
@@ -8,46 +7,44 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { z } from "zod";
 export { consumeAsyncIterator, getEventMeta } from "@orpc/client";
 
-// Define Zod schemas for validation
 const PlanetSchema = z.object({
   id: z.number(),
   name: z.string(),
   description: z.string().optional(),
 });
 
-// Contract router matching the Rust server's routes
+// Contract router matching the Rust server's routes.
+// All procedures use POST — oRPC's OpenAPILink sends input in the request body.
 export const contract = {
   ping: oc.meta(openapi({ method: "POST", path: "/ping" })).output(z.string()),
+
   planet: {
     list: oc
       .meta(openapi({ method: "POST", path: "/planet/list" }))
       .output(z.array(PlanetSchema)),
+
     listPaginated: oc
       .meta(openapi({ method: "POST", path: "/planet/list-paginated" }))
-      .input(
-        z.object({
-          limit: z.number(),
-          offset: z.number().optional(),
-        }),
-      )
+      .input(z.object({ limit: z.number(), offset: z.number().optional() }))
       .output(
         z.object({
           items: z.array(PlanetSchema),
           nextPageParam: z.number().optional(),
         }),
       ),
+
     find: oc
       .meta(openapi({ method: "POST", path: "/planet/find" }))
-      .errors({
-        NOT_FOUND: {},
-      })
+      .errors({ NOT_FOUND: {} })
       .input(z.object({ id: z.number() }))
       .output(PlanetSchema),
+
     create: oc
       .meta(openapi({ method: "POST", path: "/planet/create" }))
       .errors({
         BAD_REQUEST: {},
         INTERNAL_ERROR: {},
+        AUTHENTICATION_REQUIRED: {},
       })
       .input(z.object({ name: z.string(), description: z.string().optional() }))
       .output(PlanetSchema),
@@ -67,29 +64,20 @@ export const contract = {
 } as const;
 
 const link = new OpenAPILink(contract, {
-  origin: "http://127.0.0.1:3001",
+  origin: "http://localhost:3001",
   url: "/rpc",
-  fetch(url, init) {
+  fetch(url, init, options, path) {
+    console.log({ url, init, options, path });
     return globalThis.fetch(url, {
       ...init,
-      // credentials: "include",
+      credentials: "include",
     });
   },
 });
 
-// Create typed client from contract — HTTP (OpenAPILink)
 export const client: RouterContractClient<typeof contract> =
   createORPCClient(link);
 
-// Create typed client from contract — WebSocket (RPCLink)
-export const wsClient: RouterContractClient<typeof contract> = createORPCClient(
-  new RPCLink({
-    connect: () => new WebSocket("ws://127.0.0.1:3001/ws"),
-    reconnect: { enabled: true },
-  }),
-);
-
-// Create TanStack Query utilities
 export const orpc = createTanstackQueryUtils(client);
 
 export { isInferableError, ORPCError };

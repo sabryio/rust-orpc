@@ -3,6 +3,7 @@ import {
   QueryClient,
   QueryClientProvider,
   useQuery,
+  useInfiniteQuery,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -49,6 +50,14 @@ function Home() {
                 <CreatePlanet />
               </div>
             </div>
+          </section>
+
+          {/* Pagination Demo */}
+          <section className="mb-16">
+            <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
+              Pagination Demo
+            </h2>
+            <PlanetListInfinite />
           </section>
 
           {/* Streaming Section */}
@@ -289,6 +298,111 @@ function CreatePlanet() {
       {mutation.error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-sm text-red-800">{String(mutation.error)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanetListInfinite() {
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    error,
+  } = useInfiniteQuery(
+    orpc.planet.listPaginated.infiniteOptions({
+      input: (pageParam: number | undefined) => ({
+        limit: 5,
+        offset: pageParam ?? 0,
+      }),
+      initialPageParam: undefined,
+      getNextPageParam: (lastPage) => lastPage.nextPageParam,
+    }),
+  );
+
+  if (isLoading) {
+    return (
+      <div className="bg-white border border-neutral-200 rounded-lg p-8">
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 bg-neutral-100 rounded w-32"></div>
+          <div className="h-16 bg-neutral-100 rounded"></div>
+          <div className="h-16 bg-neutral-100 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white border border-red-200 rounded-lg p-8">
+        <p className="text-sm text-red-600">{String(error)}</p>
+      </div>
+    );
+  }
+
+  const allPlanets = data?.pages.flatMap((page) => page.items) ?? [];
+
+  return (
+    <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
+      <div className="px-6 py-4 border-b border-neutral-200 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-900">
+            Infinite Query (Pagination)
+          </h3>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            {allPlanets.length} planets loaded • {data?.pages.length ?? 0} pages
+          </p>
+        </div>
+        <code className="text-xs font-mono text-neutral-400">
+          infiniteOptions
+        </code>
+      </div>
+
+      <div className="divide-y divide-neutral-100">
+        {allPlanets.map((planet) => (
+          <div
+            key={planet.id}
+            className="px-6 py-4 hover:bg-neutral-50 transition-colors"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <h4 className="text-sm font-medium text-neutral-900">
+                  {planet.name}
+                </h4>
+                {planet.description && (
+                  <p className="text-sm text-neutral-500 mt-1">
+                    {planet.description}
+                  </p>
+                )}
+              </div>
+              <span className="text-xs font-mono text-neutral-400">
+                #{planet.id}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {hasNextPage && (
+        <div className="px-6 py-4 border-t border-neutral-200 bg-neutral-50">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="w-full px-4 py-2.5 bg-neutral-900 text-white text-sm font-medium rounded-md hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {isFetchingNextPage ? "Loading..." : "Load More"}
+          </button>
+        </div>
+      )}
+
+      {!hasNextPage && allPlanets.length > 0 && (
+        <div className="px-6 py-4 border-t border-neutral-200 bg-neutral-50">
+          <p className="text-sm text-neutral-500 text-center">
+            All planets loaded
+          </p>
         </div>
       )}
     </div>

@@ -20,6 +20,20 @@ export const contract = {
     list: oc
       .meta(openapi({ method: "POST", path: "/planet/list" }))
       .output(z.array(PlanetSchema)),
+    listPaginated: oc
+      .meta(openapi({ method: "POST", path: "/planet/list-paginated" }))
+      .input(
+        z.object({
+          limit: z.number(),
+          offset: z.number().optional(),
+        }),
+      )
+      .output(
+        z.object({
+          items: z.array(PlanetSchema),
+          nextPageParam: z.number().optional(),
+        }),
+      ),
     find: oc
       .meta(openapi({ method: "POST", path: "/planet/find" }))
       .input(z.object({ id: z.number() }))

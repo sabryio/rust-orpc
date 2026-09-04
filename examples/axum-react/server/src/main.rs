@@ -39,6 +39,19 @@ struct CreatePlanetInput {
     description: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ListPlanetsPaginatedInput {
+    limit: usize,
+    offset: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct ListPlanetsPaginatedOutput {
+    items: Vec<Planet>,
+    #[serde(rename = "nextPageParam")]
+    next_page_param: Option<usize>,
+}
+
 // ===== Simple RPC Error Type =====
 
 #[derive(Debug, Serialize)]
@@ -83,6 +96,34 @@ async fn ping() -> Json<String> {
 
 async fn list_planets(State(state): State<AppState>) -> Json<Vec<Planet>> {
     Json(state.planets.to_vec())
+}
+
+async fn list_planets_paginated(
+    State(state): State<AppState>,
+    Json(input): Json<ListPlanetsPaginatedInput>,
+) -> Json<ListPlanetsPaginatedOutput> {
+    let offset = input.offset.unwrap_or(0);
+
+    // Note: Offset pagination is O(n) for skipping — acceptable for demo with 12 items.
+    // For large datasets, consider cursor-based pagination.
+    let items: Vec<Planet> = state
+        .planets
+        .iter()
+        .skip(offset)
+        .take(input.limit)
+        .cloned()
+        .collect();
+
+    let next_page_param = if offset + input.limit < state.planets.len() {
+        Some(offset + input.limit)
+    } else {
+        None
+    };
+
+    Json(ListPlanetsPaginatedOutput {
+        items,
+        next_page_param,
+    })
 }
 
 async fn find_planet(
@@ -204,18 +245,63 @@ async fn main() {
         planets: Arc::new(vec![
             Planet {
                 id: 1,
+                name: "Mercury".to_string(),
+                description: Some("The smallest planet".to_string()),
+            },
+            Planet {
+                id: 2,
+                name: "Venus".to_string(),
+                description: Some("The hottest planet".to_string()),
+            },
+            Planet {
+                id: 3,
                 name: "Earth".to_string(),
                 description: Some("The blue planet".to_string()),
             },
             Planet {
-                id: 2,
+                id: 4,
                 name: "Mars".to_string(),
                 description: Some("The red planet".to_string()),
             },
             Planet {
-                id: 3,
+                id: 5,
                 name: "Jupiter".to_string(),
-                description: Some("The gas giant".to_string()),
+                description: Some("The largest planet".to_string()),
+            },
+            Planet {
+                id: 6,
+                name: "Saturn".to_string(),
+                description: Some("The ringed planet".to_string()),
+            },
+            Planet {
+                id: 7,
+                name: "Uranus".to_string(),
+                description: Some("The ice giant".to_string()),
+            },
+            Planet {
+                id: 8,
+                name: "Neptune".to_string(),
+                description: Some("The windiest planet".to_string()),
+            },
+            Planet {
+                id: 9,
+                name: "Pluto".to_string(),
+                description: Some("The dwarf planet".to_string()),
+            },
+            Planet {
+                id: 10,
+                name: "Ceres".to_string(),
+                description: Some("Dwarf planet in asteroid belt".to_string()),
+            },
+            Planet {
+                id: 11,
+                name: "Eris".to_string(),
+                description: Some("Distant dwarf planet".to_string()),
+            },
+            Planet {
+                id: 12,
+                name: "Haumea".to_string(),
+                description: Some("Egg-shaped dwarf planet".to_string()),
             },
         ]),
     };
@@ -224,6 +310,7 @@ async fn main() {
     let app = Router::new()
         .route("/rpc/ping", post(ping))
         .route("/rpc/planet/list", post(list_planets))
+        .route("/rpc/planet/list-paginated", post(list_planets_paginated))
         .route("/rpc/planet/find", post(find_planet))
         .route("/rpc/planet/create", post(create_planet))
         .route("/rpc/stream", post(stream_events))
@@ -245,6 +332,7 @@ async fn main() {
     println!("🚀 Server running on http://127.0.0.1:3001");
     println!("   - POST /rpc/ping");
     println!("   - POST /rpc/planet/list");
+    println!("   - POST /rpc/planet/list-paginated");
     println!("   - POST /rpc/planet/find");
     println!("   - POST /rpc/planet/create");
     println!("   - POST /rpc/stream");

@@ -6,85 +6,77 @@ import {
   orpc,
 } from "#/rpc";
 import {
-  QueryClient,
-  QueryClientProvider,
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
 export const Route = createFileRoute("/demo")({ component: Home });
 
-const queryClient = new QueryClient();
-
 function Home() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-neutral-50">
-        {/* Header */}
-        <header className="border-b border-neutral-200 bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
-                Planet Explorer
-              </h1>
-              <span className="text-sm text-neutral-400 font-mono">
-                oRPC Demo
-              </span>
+    <div className="min-h-screen bg-neutral-50">
+      {/* Header */}
+      <header className="border-b border-neutral-200 bg-white">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+              Planet Explorer
+            </h1>
+            <span className="text-sm text-neutral-400 font-mono">
+              oRPC Demo
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-6 py-12">
+        {/* Connection Section */}
+        <section className="mb-16">
+          <PingTest />
+        </section>
+
+        {/* CRUD Operations */}
+        <section className="mb-16">
+          <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
+            CRUD Operations
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <PlanetList />
+            <div className="space-y-6">
+              <PlanetFind />
+              <CreatePlanet />
             </div>
           </div>
-        </header>
+        </section>
 
-        <div className="max-w-7xl mx-auto px-6 py-12">
-          {/* Connection Section */}
-          <section className="mb-16">
-            <PingTest />
-          </section>
+        {/* Pagination Demo */}
+        <section className="mb-16">
+          <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
+            Pagination Demo
+          </h2>
+          <PlanetListInfinite />
+        </section>
 
-          {/* CRUD Operations */}
-          <section className="mb-16">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
-              CRUD Operations
-            </h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <PlanetList />
-              <div className="space-y-6">
-                <PlanetFind />
-                <CreatePlanet />
-              </div>
-            </div>
-          </section>
-
-          {/* Pagination Demo */}
-          <section className="mb-16">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
-              Pagination Demo
-            </h2>
-            <PlanetListInfinite />
-          </section>
-
-          {/* Streaming Section */}
-          <section>
-            <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
-              Server-Sent Events Streaming
-            </h2>
-            <div className="grid grid-cols-1 gap-6 mb-6">
-              <StreamEvents />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <StreamAsyncConsumeIterator />
-              <StreamAsyncStreamed />
-              <StreamAsyncLive />
-            </div>
-          </section>
-        </div>
+        {/* Streaming Section */}
+        <section>
+          <h2 className="text-xs font-medium uppercase tracking-wider text-neutral-500 mb-6">
+            Server-Sent Events Streaming
+          </h2>
+          <div className="grid grid-cols-1 gap-6 mb-6">
+            <StreamEvents />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <StreamAsyncConsumeIterator />
+            <StreamAsyncStreamed />
+            <StreamAsyncLive />
+          </div>
+        </section>
       </div>
-      <ReactQueryDevtools initialIsOpen={false} />
-    </QueryClientProvider>
+    </div>
   );
 }
 

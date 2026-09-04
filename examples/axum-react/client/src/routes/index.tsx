@@ -1,117 +1,107 @@
 import { orpc } from "#/rpc";
 import { useSession } from "@/lib/auth-client";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-} from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({ component: Home });
 
-const queryClient = new QueryClient();
-
 function Home() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-linear-to-br from-neutral-50 to-neutral-100">
-        <div className="max-w-4xl mx-auto px-6 py-16">
-          {/* Hero Section */}
-          <div className="text-center mb-12">
-            <h1 className="text-5xl font-bold tracking-tight text-neutral-900 mb-4">
-              Welcome to oRPC
-            </h1>
-            <p className="text-xl text-neutral-600 mb-8">
-              End-to-end type-safe RPC framework for Rust + TypeScript
-            </p>
-            <AuthStatus />
-          </div>
+    <div className="min-h-screen bg-linear-to-br from-neutral-50 to-neutral-100">
+      <div className="max-w-4xl mx-auto px-6 py-16">
+        {/* Hero Section */}
+        <div className="text-center mb-12">
+          <h1 className="text-5xl font-bold tracking-tight text-neutral-900 mb-4">
+            Welcome to oRPC
+          </h1>
+          <p className="text-xl text-neutral-600 mb-8">
+            End-to-end type-safe RPC framework for Rust + TypeScript
+          </p>
+          <AuthStatus />
+        </div>
 
-          {/* Quick Links */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-            <Link
-              to="/demo"
-              className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
-            >
-              <div className="text-2xl mb-2">🚀</div>
-              <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
-                Full Demo
-              </h3>
-              <p className="text-sm text-neutral-600">
-                Explore all oRPC features: CRUD, streaming, WebSocket
-              </p>
-            </Link>
-
-            <Link
-              to="/auth"
-              className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
-            >
-              <div className="text-2xl mb-2">🔐</div>
-              <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
-                Authentication
-              </h3>
-              <p className="text-sm text-neutral-600">
-                Sign in or create an account with Better Auth
-              </p>
-            </Link>
-
-            <Link
-              to="/profile"
-              className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
-            >
-              <div className="text-2xl mb-2">👤</div>
-              <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
-                Profile
-              </h3>
-              <p className="text-sm text-neutral-600">
-                View your account details and manage sessions
-              </p>
-            </Link>
-          </div>
-
-          {/* Simple Example */}
-          <div className="mb-8">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-neutral-500 mb-4">
-              Quick Example
-            </h2>
-            <SimplePlanetList />
-          </div>
-
-          {/* Tech Stack */}
-          <div className="bg-white border border-neutral-200 rounded-lg p-6">
-            <h3 className="text-sm font-semibold text-neutral-900 mb-4">
-              Tech Stack
+        {/* Quick Links */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+          <Link
+            to="/demo"
+            className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
+          >
+            <div className="text-2xl mb-2">🚀</div>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
+              Full Demo
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="font-mono text-xs text-neutral-500 mb-1">
-                  Backend
-                </div>
-                <div className="text-neutral-900">Rust + Axum</div>
+            <p className="text-sm text-neutral-600">
+              Explore all oRPC features: CRUD, streaming, WebSocket
+            </p>
+          </Link>
+
+          <Link
+            to="/auth"
+            className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
+          >
+            <div className="text-2xl mb-2">🔐</div>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
+              Authentication
+            </h3>
+            <p className="text-sm text-neutral-600">
+              Sign in or create an account with Better Auth
+            </p>
+          </Link>
+
+          <Link
+            to="/profile"
+            className="p-6 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all group"
+          >
+            <div className="text-2xl mb-2">👤</div>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-2 group-hover:text-neutral-700">
+              Profile
+            </h3>
+            <p className="text-sm text-neutral-600">
+              View your account details and manage sessions
+            </p>
+          </Link>
+        </div>
+
+        {/* Simple Example */}
+        <div className="mb-8">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-neutral-500 mb-4">
+            Quick Example
+          </h2>
+          <SimplePlanetList />
+        </div>
+
+        {/* Tech Stack */}
+        <div className="bg-white border border-neutral-200 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-neutral-900 mb-4">
+            Tech Stack
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <div className="font-mono text-xs text-neutral-500 mb-1">
+                Backend
               </div>
-              <div>
-                <div className="font-mono text-xs text-neutral-500 mb-1">
-                  Frontend
-                </div>
-                <div className="text-neutral-900">React + TanStack</div>
+              <div className="text-neutral-900">Rust + Axum</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs text-neutral-500 mb-1">
+                Frontend
               </div>
-              <div>
-                <div className="font-mono text-xs text-neutral-500 mb-1">
-                  Auth
-                </div>
-                <div className="text-neutral-900">Better Auth RS</div>
+              <div className="text-neutral-900">React + TanStack</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs text-neutral-500 mb-1">
+                Auth
               </div>
-              <div>
-                <div className="font-mono text-xs text-neutral-500 mb-1">
-                  RPC
-                </div>
-                <div className="text-neutral-900">oRPC Framework</div>
-              </div>
+              <div className="text-neutral-900">Better Auth RS</div>
+            </div>
+            <div>
+              <div className="font-mono text-xs text-neutral-500 mb-1">RPC</div>
+              <div className="text-neutral-900">oRPC Framework</div>
             </div>
           </div>
         </div>
       </div>
-    </QueryClientProvider>
+    </div>
   );
 }
 

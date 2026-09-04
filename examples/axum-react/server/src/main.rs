@@ -156,6 +156,37 @@ async fn stream_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     )
 }
 
+async fn stream_async() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use async_stream::stream;
+
+    let s = stream! {
+        // Initial comment to flush headers immediately
+        yield Ok(Event::default().comment(""));
+
+        // Yield 15 events, one per second
+        for i in 0u32..15 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let payload = serde_json::to_string(&StreamEvent {
+                message: format!("Async Stream Event #{i}"),
+                count: i,
+            })
+            .unwrap();
+
+            yield Ok(Event::default().event("message").data(payload));
+        }
+
+        // Final close event
+        yield Ok(Event::default().event("close").data(""));
+    };
+
+    Sse::new(s).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text(""),
+    )
+}
+
 // ===== Main =====
 
 #[tokio::main]
@@ -188,6 +219,7 @@ async fn main() {
         .route("/rpc/planet/find", post(find_planet))
         .route("/rpc/planet/create", post(create_planet))
         .route("/rpc/stream", post(stream_events))
+        .route("/rpc/stream-async", post(stream_async))
         // Add CORS middleware
         .layer(
             CorsLayer::new()
@@ -208,6 +240,7 @@ async fn main() {
     println!("   - POST /rpc/planet/find");
     println!("   - POST /rpc/planet/create");
     println!("   - POST /rpc/stream");
+    println!("   - POST /rpc/stream-async");
 
     axum::serve(listener, app).await.unwrap();
 }

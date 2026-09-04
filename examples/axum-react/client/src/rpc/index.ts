@@ -35,6 +35,12 @@ export const contract = {
     .output(
       asyncIteratorObject(z.object({ message: z.string(), count: z.number() })),
     ),
+
+  streamAsync: oc
+    .meta(openapi({ method: "POST", path: "/stream-async" }))
+    .output(
+      asyncIteratorObject(z.object({ message: z.string(), count: z.number() })),
+    ),
 } as const;
 
 const link = new OpenAPILink(contract, {

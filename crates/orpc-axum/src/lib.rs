@@ -29,8 +29,7 @@
 //! ```
 
 use axum::{
-    body::Body,
-    http::{Method, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Json, Response},
     routing::{delete, get, patch, post, put},
     Router as AxumRouterType,
@@ -61,42 +60,44 @@ where
         let context_arc = Arc::new(ctx);
         let mut axum_router = AxumRouterType::new();
 
-        // Collect (key, method, path) before iterating to avoid borrow issues
+        // Collect (path, method) — registry is keyed by route path
         let routes: Vec<(String, HttpMethod, String)> = registry
             .routes()
             .map(|(key, meta)| (key.clone(), meta.method.clone(), meta.path.clone()))
             .collect();
 
-        for (key, method, path) in routes {
+        for (route_path, method, http_path) in routes {
             let registry_clone = Arc::clone(&registry);
             let context_clone = Arc::clone(&context_arc);
-            let key_clone = key.clone();
+            let route_path_clone = route_path.clone();
 
-            let handler = move |body: axum::extract::Json<serde_json::Value>| {
+            // POST/PUT/PATCH: body is optional — missing body treated as null input
+            let handler = move |body: Option<axum::extract::Json<serde_json::Value>>| {
                 let registry = Arc::clone(&registry_clone);
                 let context = Arc::clone(&context_clone);
-                let key = key_clone.clone();
-                async move { handle_procedure(registry, context, key, body.0).await }
+                let key = route_path_clone.clone();
+                let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
+                async move { handle_procedure(registry, context, key, input).await }
             };
 
-            // Also register a no-body variant for GET-style requests
+            // GET/DELETE: no body
             let registry_clone2 = Arc::clone(&registry);
             let context_clone2 = Arc::clone(&context_arc);
-            let key_clone2 = key.clone();
+            let route_path_clone2 = route_path.clone();
 
             let handler_no_body = move || {
                 let registry = Arc::clone(&registry_clone2);
                 let context = Arc::clone(&context_clone2);
-                let key = key_clone2.clone();
+                let key = route_path_clone2.clone();
                 async move { handle_procedure(registry, context, key, serde_json::Value::Null).await }
             };
 
             axum_router = match method {
-                HttpMethod::Get => axum_router.route(&path, get(handler_no_body)),
-                HttpMethod::Post => axum_router.route(&path, post(handler)),
-                HttpMethod::Put => axum_router.route(&path, put(handler)),
-                HttpMethod::Patch => axum_router.route(&path, patch(handler)),
-                HttpMethod::Delete => axum_router.route(&path, delete(handler_no_body)),
+                HttpMethod::Get => axum_router.route(&http_path, get(handler_no_body)),
+                HttpMethod::Post => axum_router.route(&http_path, post(handler)),
+                HttpMethod::Put => axum_router.route(&http_path, put(handler)),
+                HttpMethod::Patch => axum_router.route(&http_path, patch(handler)),
+                HttpMethod::Delete => axum_router.route(&http_path, delete(handler_no_body)),
             };
         }
 

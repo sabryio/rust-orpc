@@ -92,12 +92,17 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// os()
+    /// ```rust
+    /// use orpc_core::{os, HttpMethod};
+    ///
+    /// #[derive(Clone)]
+    /// struct AppContext;
+    ///
+    /// let proc = os()
     ///     .context::<AppContext>()
     ///     .route(HttpMethod::Get, "/ping")
     ///     .output::<String>()
-    ///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+    ///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) });
     /// ```
     pub fn route(
         self,
@@ -125,22 +130,40 @@ where
     /// # Examples
     ///
     /// With input:
-    /// ```rust,ignore
-    /// os()
+    /// ```rust
+    /// use orpc_core::{os, HttpMethod};
+    ///
+    /// #[derive(Clone)]
+    /// struct Ctx;
+    ///
+    /// #[derive(serde::Deserialize)]
+    /// struct MyInput { id: i32 }
+    ///
+    /// #[derive(serde::Serialize)]
+    /// struct MyOutput { name: String }
+    ///
+    /// let proc = os()
     ///     .context::<Ctx>()
     ///     .route(HttpMethod::Post, "/items/{id}")
     ///     .input::<MyInput>()
     ///     .output::<MyOutput>()
-    ///     .handler(|ctx, input| async move { Ok(output) })
+    ///     .handler(|_ctx, input: MyInput| async move {
+    ///         Ok(MyOutput { name: format!("item-{}", input.id) })
+    ///     });
     /// ```
     ///
     /// Without input:
-    /// ```rust,ignore
-    /// os()
+    /// ```rust
+    /// use orpc_core::{os, HttpMethod};
+    ///
+    /// #[derive(Clone)]
+    /// struct Ctx;
+    ///
+    /// let proc = os()
     ///     .context::<Ctx>()
     ///     .route(HttpMethod::Get, "/ping")
     ///     .output::<String>()
-    ///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+    ///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) });
     /// ```
     pub fn handler<F, Fut>(self, handler: F) -> Procedure<Ctx, In, Out>
     where
@@ -165,11 +188,12 @@ where
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use orpc_core::{os, HttpMethod};
 ///
-/// # #[derive(Clone)]
-/// # struct Ctx;
+/// #[derive(Clone)]
+/// struct Ctx;
+///
 /// let proc = os()
 ///     .context::<Ctx>()
 ///     .route(HttpMethod::Get, "/ping")

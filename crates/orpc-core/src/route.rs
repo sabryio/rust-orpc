@@ -43,12 +43,20 @@ impl fmt::Display for HttpMethod {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// os()
+/// ```rust
+/// use orpc_core::{os, HttpMethod};
+///
+/// #[derive(Clone)]
+/// struct AppContext;
+///
+/// let proc = os()
 ///     .context::<AppContext>()
 ///     .route(HttpMethod::Get, "/ping")
 ///     .output::<String>()
-///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) });
+///
+/// assert_eq!(proc.route.method, HttpMethod::Get);
+/// assert_eq!(proc.route.path, "/ping");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteMetadata {

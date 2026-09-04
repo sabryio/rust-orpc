@@ -11,14 +11,6 @@ use crate::ProcedureRegistry;
 /// # DIP: Registry depends on this abstraction, not concrete router implementations
 pub trait Router<Ctx> {
     /// Registers all procedures in this router with the given prefix.
-    ///
-    /// For nested routers, this method recursively calls `register_procedures`
-    /// on child routers, building up the full path hierarchy.
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - Path prefix for this router's procedures (e.g., "planet" for planet.find)
-    /// * `registry` - Registry to populate with this router's procedures
     fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<Ctx>);
 }
 
@@ -40,13 +32,9 @@ mod tests {
     where
         Ctx: Clone + Send + 'static,
     {
-        fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<Ctx>) {
-            let path = if prefix.is_empty() {
-                "ping".to_string()
-            } else {
-                format!("{}/ping", prefix)
-            };
-            registry.insert(path, &self.ping);
+        fn register_procedures(&self, _prefix: &str, registry: &mut ProcedureRegistry<Ctx>) {
+            // Use route path as registry key
+            registry.insert(self.ping.route.path.clone(), &self.ping);
         }
     }
 
@@ -60,10 +48,10 @@ mod tests {
                 .handler(|_ctx: TestContext, _: ()| async { Ok("pong".to_string()) }),
         };
 
-        let mut registry = ProcedureRegistry::<TestContext>::new();
+        let mut registry = crate::ProcedureRegistry::<TestContext>::new();
         router.register_procedures("", &mut registry);
 
-        assert!(registry.has("ping"));
+        assert!(registry.has("/ping"));
     }
 
     struct NestedRouter<Ctx> {
@@ -76,19 +64,8 @@ mod tests {
         Ctx: Clone + Send + 'static,
     {
         fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<Ctx>) {
-            let ping_path = if prefix.is_empty() {
-                "ping".to_string()
-            } else {
-                format!("{}/ping", prefix)
-            };
-            registry.insert(ping_path, &self.ping);
-
-            let nested_prefix = if prefix.is_empty() {
-                "nested".to_string()
-            } else {
-                format!("{}/nested", prefix)
-            };
-            self.nested.register_procedures(&nested_prefix, registry);
+            registry.insert(self.ping.route.path.clone(), &self.ping);
+            self.nested.register_procedures(prefix, registry);
         }
     }
 
@@ -99,20 +76,20 @@ mod tests {
                 .context::<TestContext>()
                 .route(HttpMethod::Get, "/ping")
                 .output::<String>()
-                .handler(|_ctx: TestContext, _: ()| async { Ok("root pong".to_string()) }),
+                .handler(|_ctx, _: ()| async { Ok("root pong".to_string()) }),
             nested: PingRouter {
                 ping: os()
                     .context::<TestContext>()
                     .route(HttpMethod::Get, "/nested/ping")
                     .output::<String>()
-                    .handler(|_ctx: TestContext, _: ()| async { Ok("nested pong".to_string()) }),
+                    .handler(|_ctx, _: ()| async { Ok("nested pong".to_string()) }),
             },
         };
 
-        let mut registry = ProcedureRegistry::<TestContext>::new();
+        let mut registry = crate::ProcedureRegistry::<TestContext>::new();
         router.register_procedures("", &mut registry);
 
-        assert!(registry.has("ping"));
-        assert!(registry.has("nested/ping"));
+        assert!(registry.has("/ping"));
+        assert!(registry.has("/nested/ping"));
     }
 }

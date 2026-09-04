@@ -5,7 +5,7 @@
 //!
 //! # Example (via macro — the only public interface)
 //!
-//! ```rust,ignore
+//! ```rust
 //! use orpc_core::{os, router, HttpMethod};
 //!
 //! #[derive(Clone)]
@@ -44,8 +44,10 @@ where
     In: serde::de::DeserializeOwned + Send + 'static,
     Out: serde::Serialize + Send + 'static,
 {
-    fn register(&self, full_path: &str, registry: &mut ProcedureRegistry<Ctx>) {
-        registry.insert(full_path, &self.proc);
+    fn register(&self, _full_path: &str, registry: &mut ProcedureRegistry<Ctx>) {
+        // Registry key is the route path declared on the procedure,
+        // not the nest hierarchy — hierarchy is organizational only.
+        registry.insert(self.proc.route.path.clone(), &self.proc);
     }
 }
 
@@ -87,13 +89,13 @@ where
     }
 
     #[doc(hidden)]
-    pub fn add<In, Out>(mut self, key: impl Into<String>, proc: Procedure<Ctx, In, Out>) -> Self
+    pub fn add<In, Out>(mut self, proc: Procedure<Ctx, In, Out>) -> Self
     where
         In: serde::de::DeserializeOwned + Send + 'static,
         Out: serde::Serialize + Send + 'static,
     {
         self.entries
-            .push((key.into(), Box::new(ProcEntry { proc })));
+            .push((proc.route.path.clone(), Box::new(ProcEntry { proc })));
         self
     }
 
@@ -174,7 +176,6 @@ mod tests {
     #[test]
     fn test_add_single_procedure() {
         let router = r().add(
-            "ping",
             os().context::<TestCtx>()
                 .route(HttpMethod::Get, "/ping")
                 .output::<String>()
@@ -184,7 +185,7 @@ mod tests {
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
 
-        assert!(registry.has("ping"));
+        assert!(registry.has("/ping"));
         assert_eq!(registry.len(), 1);
     }
 
@@ -192,14 +193,12 @@ mod tests {
     fn test_add_multiple_procedures() {
         let router = r()
             .add(
-                "ping",
                 os().context::<TestCtx>()
                     .route(HttpMethod::Get, "/ping")
                     .output::<String>()
                     .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
             )
             .add(
-                "double",
                 os().context::<TestCtx>()
                     .route(HttpMethod::Post, "/double")
                     .input::<Input>()
@@ -210,8 +209,8 @@ mod tests {
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
 
-        assert!(registry.has("ping"));
-        assert!(registry.has("double"));
+        assert!(registry.has("/ping"));
+        assert!(registry.has("/double"));
         assert_eq!(registry.len(), 2);
     }
 
@@ -219,14 +218,12 @@ mod tests {
     fn test_nest_sub_router() {
         let planet = r()
             .add(
-                "list",
                 os().context::<TestCtx>()
                     .route(HttpMethod::Get, "/planet")
                     .output::<String>()
                     .handler(|_ctx: TestCtx, _: ()| async { Ok("[]".to_string()) }),
             )
             .add(
-                "find",
                 os().context::<TestCtx>()
                     .route(HttpMethod::Get, "/planet/{id}")
                     .input::<Input>()
@@ -238,7 +235,6 @@ mod tests {
 
         let router = r()
             .add(
-                "ping",
                 os().context::<TestCtx>()
                     .route(HttpMethod::Get, "/ping")
                     .output::<String>()
@@ -249,16 +245,15 @@ mod tests {
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
 
-        assert!(registry.has("ping"));
-        assert!(registry.has("planet/list"));
-        assert!(registry.has("planet/find"));
+        assert!(registry.has("/ping"));
+        assert!(registry.has("/planet"));
+        assert!(registry.has("/planet/{id}"));
         assert_eq!(registry.len(), 3);
     }
 
     #[test]
     fn test_deep_nesting() {
         let inner = r().add(
-            "action",
             os().context::<TestCtx>()
                 .route(HttpMethod::Post, "/action")
                 .output::<String>()
@@ -271,13 +266,12 @@ mod tests {
         let mut registry = ProcedureRegistry::new();
         outer.register_procedures("", &mut registry);
 
-        assert!(registry.has("middle/inner/action"));
+        assert!(registry.has("/action"));
     }
 
     #[tokio::test]
     async fn test_router_dispatch_end_to_end() {
         let router = r().add(
-            "add",
             os().context::<TestCtx>()
                 .route(HttpMethod::Post, "/add")
                 .input::<Input>()
@@ -290,7 +284,7 @@ mod tests {
 
         let ctx = TestCtx { value: 10 };
         let result = registry
-            .call("add", ctx, serde_json::json!({ "x": 32 }))
+            .call("/add", ctx, serde_json::json!({ "x": 32 }))
             .await;
 
         assert!(result.is_ok());
@@ -302,8 +296,9 @@ mod tests {
 
     #[test]
     fn test_prefix_propagation() {
+        // With route-path keying, nesting prefix doesn't affect the registry key
+        // (registry key = route path, not the nest hierarchy)
         let sub = r().add(
-            "proc",
             os().context::<TestCtx>()
                 .route(HttpMethod::Get, "/proc")
                 .output::<String>()
@@ -313,6 +308,6 @@ mod tests {
         let mut registry = ProcedureRegistry::new();
         sub.register_procedures("api/v1", &mut registry);
 
-        assert!(registry.has("api/v1/proc"));
+        assert!(registry.has("/proc"));
     }
 }

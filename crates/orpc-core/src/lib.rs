@@ -8,7 +8,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use orpc_core::{os, HttpMethod};
 //!
 //! #[derive(Clone)]

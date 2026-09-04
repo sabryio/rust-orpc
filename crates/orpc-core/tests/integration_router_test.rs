@@ -89,6 +89,7 @@ async fn test_nested_router_flattening() {
     let mut registry = ProcedureRegistry::<AppContext>::new();
     router.register_procedures("", &mut registry);
 
+    // Manual Router impl uses its own key scheme (not route path)
     assert!(registry.has("ping"));
     assert!(registry.has("planet/list"));
     assert!(registry.has("planet/find"));

@@ -89,7 +89,23 @@ where
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// use orpc_core::{os, router, HttpMethod, Router, ProcedureRegistry};
+    ///
+    /// #[derive(Clone)]
+    /// struct Ctx;
+    ///
+    /// let app = router! {
+    ///     ping: os()
+    ///         .context::<Ctx>()
+    ///         .route(HttpMethod::Get, "/ping")
+    ///         .output::<String>()
+    ///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
+    /// };
+    ///
+    /// let mut registry = ProcedureRegistry::new();
+    /// app.register_procedures("", &mut registry);
+    ///
     /// for (key, meta) in registry.routes() {
     ///     println!("{} {} (key: {})", meta.method, meta.path, key);
     /// }
@@ -135,14 +151,14 @@ mod tests {
             .output::<i32>()
             .handler(|ctx: TestContext, input: Input| async move { Ok(ctx.value + input.x) });
 
-        registry.insert("add", &proc);
+        registry.insert("/add", &proc);
 
-        assert!(registry.has("add"));
+        assert!(registry.has("/add"));
         assert_eq!(registry.len(), 1);
 
         let ctx = TestContext { value: 10 };
         let result = registry
-            .call("add", ctx, serde_json::json!({ "x": 32 }))
+            .call("/add", ctx, serde_json::json!({ "x": 32 }))
             .await;
 
         assert!(result.is_ok());
@@ -168,16 +184,16 @@ mod tests {
             .output::<String>()
             .handler(|_ctx: TestContext, _: ()| async { Ok("created".to_string()) });
 
-        registry.insert("ping", &ping);
-        registry.insert("items/create", &create);
+        registry.insert("/ping", &ping);
+        registry.insert("/items", &create);
 
         let routes: HashMap<&String, &RouteMetadata> = registry.routes().collect();
 
-        let ping_meta = routes.get(&"ping".to_string()).unwrap();
+        let ping_meta = routes.get(&"/ping".to_string()).unwrap();
         assert_eq!(ping_meta.method, HttpMethod::Get);
         assert_eq!(ping_meta.path, "/ping");
 
-        let create_meta = routes.get(&"items/create".to_string()).unwrap();
+        let create_meta = routes.get(&"/items".to_string()).unwrap();
         assert_eq!(create_meta.method, HttpMethod::Post);
         assert_eq!(create_meta.path, "/items");
     }
@@ -187,7 +203,7 @@ mod tests {
         let registry = ProcedureRegistry::<TestContext>::new();
         let ctx = TestContext { value: 0 };
 
-        let result = registry.call("nonexistent", ctx, Value::Null).await;
+        let result = registry.call("/nonexistent", ctx, Value::Null).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -211,12 +227,12 @@ mod tests {
             .output::<i32>()
             .handler(|_ctx: TestContext, input: Input| async move { Ok(input.x * 2) });
 
-        registry.insert("ping", &ping);
-        registry.insert("math/double", &double);
+        registry.insert("/ping", &ping);
+        registry.insert("/math/double", &double);
 
         assert_eq!(registry.len(), 2);
-        assert!(registry.has("ping"));
-        assert!(registry.has("math/double"));
+        assert!(registry.has("/ping"));
+        assert!(registry.has("/math/double"));
     }
 
     #[tokio::test]
@@ -230,7 +246,7 @@ mod tests {
             .output::<String>()
             .handler(|_ctx: TestContext, _: ()| async { Ok("test".to_string()) });
 
-        registry.insert("test", &proc);
+        registry.insert("/test", &proc);
         assert!(!registry.is_empty());
     }
 }

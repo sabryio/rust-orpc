@@ -153,7 +153,8 @@ async fn test_router_registration() {
     let mut registry = ProcedureRegistry::new();
     router_inst.register_procedures("", &mut registry);
 
-    assert!(registry.has("ping"));
+    // Registry is keyed by route path
+    assert!(registry.has("/ping"));
 }
 
 #[tokio::test]
@@ -177,7 +178,8 @@ async fn test_nested_router_registration() {
     let mut registry = ProcedureRegistry::new();
     router_inst.register_procedures("", &mut registry);
 
-    assert!(registry.has("planet/list"));
+    // Registry keyed by route path, not nest hierarchy
+    assert!(registry.has("/planet"));
 }
 
 #[tokio::test]
@@ -196,7 +198,7 @@ async fn test_end_to_end_dispatch() {
     let ctx = TestContext {
         value: "test-value".to_string(),
     };
-    let result = registry.call("ping", ctx, serde_json::json!(null)).await;
+    let result = registry.call("/ping", ctx, serde_json::json!(null)).await;
     assert!(result.is_ok());
 
     match result.unwrap() {
@@ -223,13 +225,13 @@ async fn test_macro_equivalence() {
             .handler(|ctx, _: ()| async move { Ok(ctx.value.clone()) })
     };
 
-    let mut manual_registry = ProcedureRegistry::new();
-    router_a.register_procedures("", &mut manual_registry);
+    let mut registry_a = ProcedureRegistry::new();
+    router_a.register_procedures("", &mut registry_a);
 
-    let mut macro_registry = ProcedureRegistry::new();
-    router_b.register_procedures("", &mut macro_registry);
+    let mut registry_b = ProcedureRegistry::new();
+    router_b.register_procedures("", &mut registry_b);
 
-    assert_eq!(manual_registry.len(), macro_registry.len());
-    assert!(manual_registry.has("ping"));
-    assert!(macro_registry.has("ping"));
+    assert_eq!(registry_a.len(), registry_b.len());
+    assert!(registry_a.has("/ping"));
+    assert!(registry_b.has("/ping"));
 }

@@ -1,4 +1,9 @@
-import { createORPCClient } from "@orpc/client";
+import {
+  createORPCClient,
+  MalformedResponseError,
+  onError,
+  ORPCError,
+} from "@orpc/client";
 import { OpenAPILink } from "@orpc/openapi/fetch";
 import { openapi } from "@orpc/openapi";
 import { oc, type RouterContractClient } from "@orpc/contract";
@@ -56,18 +61,18 @@ const PaginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) =>
 
 // ===== Contract =====
 
-export const learningContract = {
+export const learningContract = oc.meta(openapi({ prefix: "/api/v1" })).router({
   // ===== GET methods (query params) =====
 
-  get: {
+  get: oc.meta(openapi({ method: "GET", prefix: "/get" })).router({
     // Simple GET with no params
     hello: oc
-      .meta(openapi({ method: "GET", path: "/get/hello" }))
+      .meta(openapi({ path: "/hello" }))
       .output(z.object({ message: z.string() })),
 
     // GET with query params
     echo: oc
-      .meta(openapi({ method: "GET", path: "/get/echo" }))
+      .meta(openapi({ path: "/echo" }))
       .input(
         z.object({
           message: z.string(),
@@ -83,18 +88,18 @@ export const learningContract = {
 
     // GET with typed error
     user: oc
-      .meta(openapi({ method: "GET", path: "/get/user" }))
+      .meta(openapi({ path: "/user" }))
       .errors({ NOT_FOUND: {}, UNAUTHORIZED: {} })
       .input(z.object({ id: z.number() }))
       .output(UserSchema),
-  },
+  }),
 
   // ===== POST methods (body params) =====
 
-  post: {
+  post: oc.meta(openapi({ method: "POST", prefix: "/post" })).router({
     // Simple POST with body
     createUser: oc
-      .meta(openapi({ method: "POST", path: "/post/create-user" }))
+      .meta(openapi({ path: "/create-user" }))
       .errors({ BAD_REQUEST: {}, CONFLICT: {} })
       .input(
         z.object({
@@ -108,7 +113,7 @@ export const learningContract = {
 
     // POST with complex nested object
     createPost: oc
-      .meta(openapi({ method: "POST", path: "/post/create-post" }))
+      .meta(openapi({ path: "/create-post" }))
       .errors({ BAD_REQUEST: {}, AUTHENTICATION_REQUIRED: {} })
       .input(
         z.object({
@@ -129,7 +134,7 @@ export const learningContract = {
 
     // POST with array input
     bulkCreate: oc
-      .meta(openapi({ method: "POST", path: "/post/bulk-create" }))
+      .meta(openapi({ path: "/bulk-create" }))
       .input(
         z.object({
           users: z.array(
@@ -154,7 +159,7 @@ export const learningContract = {
 
     // POST with pagination
     search: oc
-      .meta(openapi({ method: "POST", path: "/post/search" }))
+      .meta(openapi({ path: "/search" }))
       .input(
         z.object({
           query: z.string(),
@@ -169,14 +174,14 @@ export const learningContract = {
         }),
       )
       .output(PaginatedResponseSchema(PostSchema)),
-  },
+  }),
 
   // ===== PUT methods (full replacement) =====
 
-  put: {
+  put: oc.meta(openapi({ method: "PUT", prefix: "/put" })).router({
     // Update entire resource
     updateUser: oc
-      .meta(openapi({ method: "PUT", path: "/put/update-user" }))
+      .meta(openapi({ path: "/update-user" }))
       .errors({ NOT_FOUND: {}, BAD_REQUEST: {} })
       .input(
         z.object({
@@ -188,14 +193,14 @@ export const learningContract = {
         }),
       )
       .output(UserSchema),
-  },
+  }),
 
   // ===== PATCH methods (partial update) =====
 
-  patch: {
+  patch: oc.meta(openapi({ method: "PATCH", prefix: "/patch" })).router({
     // Update specific fields
     patchUser: oc
-      .meta(openapi({ method: "PATCH", path: "/patch/patch-user" }))
+      .meta(openapi({ path: "/patch-user" }))
       .errors({ NOT_FOUND: {}, BAD_REQUEST: {} })
       .input(
         z.object({
@@ -209,14 +214,14 @@ export const learningContract = {
         }),
       )
       .output(UserSchema),
-  },
+  }),
 
   // ===== DELETE methods =====
 
-  delete: {
+  delete: oc.meta(openapi({ method: "DELETE", prefix: "/delete" })).router({
     // Delete single resource
     deleteUser: oc
-      .meta(openapi({ method: "DELETE", path: "/delete/delete-user" }))
+      .meta(openapi({ path: "/delete-user" }))
       .errors({ NOT_FOUND: {}, FORBIDDEN: {} })
       .input(z.object({ id: z.number() }))
       .output(
@@ -228,7 +233,7 @@ export const learningContract = {
 
     // Bulk delete
     bulkDelete: oc
-      .meta(openapi({ method: "DELETE", path: "/delete/bulk-delete" }))
+      .meta(openapi({ path: "/bulk-delete" }))
       .input(
         z.object({
           ids: z.array(z.number()),
@@ -245,24 +250,22 @@ export const learningContract = {
           ),
         }),
       ),
-  },
+  }),
 
   // ===== Special cases =====
 
-  special: {
+  special: oc.meta(openapi({ method: "POST", prefix: "/special" })).router({
     // No input, just output
-    random: oc
-      .meta(openapi({ method: "POST", path: "/special/random" }))
-      .output(
-        z.object({
-          value: z.number(),
-          timestamp: z.string(),
-        }),
-      ),
+    random: oc.meta(openapi({ path: "/random" })).output(
+      z.object({
+        value: z.number(),
+        timestamp: z.string(),
+      }),
+    ),
 
     // Complex validation
     validateEmail: oc
-      .meta(openapi({ method: "POST", path: "/special/validate-email" }))
+      .meta(openapi({ path: "/validate-email" }))
       .input(
         z.object({
           email: z.string().email(),
@@ -279,7 +282,7 @@ export const learningContract = {
 
     // File upload metadata (body contains file info)
     uploadFile: oc
-      .meta(openapi({ method: "POST", path: "/special/upload-file" }))
+      .meta(openapi({ path: "/upload-file" }))
       .input(
         z.object({
           filename: z.string(),
@@ -295,28 +298,40 @@ export const learningContract = {
           uploadedAt: z.string(),
         }),
       ),
-  },
-} as const;
+  }),
+});
 
 // ===== Client Setup =====
 
-// Mock function to simulate getting auth token
-// In a real app, this would get from localStorage, session, etc.
-const getAuthToken = () => {
-  return "demo-token-12345";
-};
+interface ClientContext {
+  token?: string;
+}
 
-const link = new OpenAPILink(learningContract, {
+const link = new OpenAPILink<ClientContext>(learningContract, {
   origin: "http://localhost:3002", // Point to inspector server
   url: "/",
 
   // Static headers sent with EVERY request
   // These will be visible in the inspector server terminal
-  headers: {
-    authorization: `Bearer ${getAuthToken()}`,
+  headers: ({ context }) => ({
+    authorization: context?.token ? `Bearer ${context.token}` : undefined,
     "x-api-key": "learning-demo-key",
     "x-client-version": "1.0.0",
-  },
+  }),
+
+  fetchInterceptors: [
+    async (options) => {
+      const response = await options.next({
+        ...options,
+        init: {
+          ...options.init,
+          credentials: "include",
+        },
+      });
+
+      return response;
+    },
+  ],
 
   async fetch(url, init, _options, path) {
     console.group(`🔍 oRPC Request: ${path.join(".")}`);
@@ -343,7 +358,8 @@ const link = new OpenAPILink(learningContract, {
     return response;
   },
   interceptors: [
-    async ({ next, path, input: _ }) => {
+    async ({ next, path, input: _, context }) => {
+      console.log("Client context:", context);
       console.time(path.join("."));
 
       try {
@@ -356,11 +372,41 @@ const link = new OpenAPILink(learningContract, {
         console.timeEnd(path.join("."));
       }
     },
+    onError((error) => {
+      if (
+        error instanceof ORPCError &&
+        error.cause instanceof MalformedResponseError
+      ) {
+        console.error(
+          "Malformed response:",
+          error.cause.response.status,
+          error.cause.response.body,
+        );
+      }
+    }),
+  ],
+  transportInterceptors: [
+    async (options) => {
+      const response = await options.next({
+        ...options,
+        request: {
+          ...options.request,
+          headers: {
+            ...options.request.headers,
+            "x-request-id": crypto.randomUUID(),
+          },
+        },
+      });
+
+      return response;
+    },
   ],
 });
 
-export const learningClient: RouterContractClient<typeof learningContract> =
-  createORPCClient(link);
+export const learningClient: RouterContractClient<
+  typeof learningContract,
+  ClientContext
+> = createORPCClient(link);
 
 export const learningOrpc = createTanstackQueryUtils(learningClient);
 

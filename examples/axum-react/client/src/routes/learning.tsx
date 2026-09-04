@@ -39,6 +39,12 @@ function LearningPage() {
   );
 }
 
+// Mock function to simulate getting auth token
+// In a real app, this would get from localStorage, session, etc.
+const getAuthToken = () => {
+  return "demo-token-12345";
+};
+
 // ===== GET Methods Section =====
 
 function GetMethodsSection() {
@@ -48,7 +54,12 @@ function GetMethodsSection() {
   const helloMutation = useMutation(learningOrpc.get.hello.mutationOptions());
   const echoMutation = useMutation(learningOrpc.get.echo.mutationOptions());
   const userQuery = useQuery(
-    learningOrpc.get.user.queryOptions({ input: { id: userId } }),
+    learningOrpc.get.user.queryOptions({
+      input: { id: userId },
+      context: {
+        token: getAuthToken(),
+      },
+    }),
   );
 
   return (

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/orpc-core",
+    "examples/axum-react/server",
+]
+resolver = "3"

@@ -74,7 +74,6 @@ where
 
         for (route_path, method, http_path) in routes {
             let registry_clone = Arc::clone(&registry);
-            let context_clone = Arc::clone(&context_arc);
             let route_path_clone = route_path.clone();
 
             // POST/PUT/PATCH: body is optional — missing body treated as null input

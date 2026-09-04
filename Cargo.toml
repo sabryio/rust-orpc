@@ -4,5 +4,6 @@ members = [
     "crates/orpc-axum",
     "crates/orpc-macros",
     "examples/axum-react/server",
+    "examples/better-auth-integration",
 ]
 resolver = "3"

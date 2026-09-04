@@ -77,37 +77,6 @@ where
     fn register(&self, full_path: &str, registry: &mut ProcedureRegistry<Ctx>);
 }
 
-struct ProcEntry<Ctx, In, Out> {
-    proc: Procedure<Ctx, In, Out>,
-}
-
-impl<Ctx, In, Out> RouterEntry<Ctx> for ProcEntry<Ctx, In, Out>
-where
-    Ctx: Clone + Send + Sync + 'static,
-    In: serde::de::DeserializeOwned + Send + 'static,
-    Out: serde::Serialize + Send + 'static,
-{
-    fn register(&self, _full_path: &str, registry: &mut ProcedureRegistry<Ctx>) {
-        // Registry key is the route path declared on the procedure,
-        // not the nest hierarchy — hierarchy is organizational only.
-        self.proc.register_in(registry);
-    }
-}
-
-struct StreamingProcEntry<Ctx, In, T> {
-    proc: StreamingProcedure<Ctx, In, T>,
-}
-
-impl<Ctx, In, T> RouterEntry<Ctx> for StreamingProcEntry<Ctx, In, T>
-where
-    Ctx: Clone + Send + Sync + 'static,
-    In: serde::de::DeserializeOwned + Send + 'static,
-    T: serde::Serialize + Send + 'static,
-{
-    fn register(&self, _full_path: &str, registry: &mut ProcedureRegistry<Ctx>) {
-        self.proc.register_in(registry);
-    }
-}
 
 struct GenericProcEntry<Ctx> {
     proc: Box<dyn IntoRouterEntry<Ctx>>,

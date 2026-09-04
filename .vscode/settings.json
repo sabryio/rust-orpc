@@ -33,6 +33,7 @@
     "source.organizeImports.biome": "explicit"
   },
   "rust-analyzer.linkedProjects": [
-    "examples/axum-react/server/Cargo.toml"
+    "examples/axum-react/server/Cargo.toml",
+    "examples/better-auth-integration/Cargo.toml"
   ]
 }

@@ -37,6 +37,15 @@ impl OrpcError {
         }
     }
 
+    /// Creates an UNAUTHORIZED error (401)
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            code: "UNAUTHORIZED".to_string(),
+            message: message.into(),
+            status: Some(401),
+        }
+    }
+
     /// Creates an INTERNAL_ERROR (500)
     pub fn internal(message: impl Into<String>) -> Self {
         Self {

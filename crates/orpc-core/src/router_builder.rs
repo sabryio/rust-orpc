@@ -129,19 +129,13 @@ where
     ///         .output::<String>()
     ///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }));
     /// ```
-    pub fn add<In, Out>(
-        mut self,
-        key: impl Into<String>,
-        proc: Procedure<Ctx, In, Out>,
-    ) -> Self
+    pub fn add<In, Out>(mut self, key: impl Into<String>, proc: Procedure<Ctx, In, Out>) -> Self
     where
         In: serde::de::DeserializeOwned + Send + 'static,
         Out: serde::Serialize + Send + 'static,
     {
-        self.entries.push((
-            key.into(),
-            Box::new(ProcEntry { proc }),
-        ));
+        self.entries
+            .push((key.into(), Box::new(ProcEntry { proc })));
         self
     }
 
@@ -251,11 +245,12 @@ mod tests {
 
     #[test]
     fn test_add_single_procedure() {
-        let router = r()
-            .add("ping", os()
-                .context::<TestCtx>()
+        let router = r().add(
+            "ping",
+            os().context::<TestCtx>()
                 .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }));
+                .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
+        );
 
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
@@ -267,15 +262,19 @@ mod tests {
     #[test]
     fn test_add_multiple_procedures() {
         let router = r()
-            .add("ping", os()
-                .context::<TestCtx>()
-                .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }))
-            .add("double", os()
-                .context::<TestCtx>()
-                .input::<Input>()
-                .output::<i32>()
-                .handler(|_ctx: TestCtx, input: Input| async move { Ok(input.x * 2) }));
+            .add(
+                "ping",
+                os().context::<TestCtx>()
+                    .output::<String>()
+                    .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
+            )
+            .add(
+                "double",
+                os().context::<TestCtx>()
+                    .input::<Input>()
+                    .output::<i32>()
+                    .handler(|_ctx: TestCtx, input: Input| async move { Ok(input.x * 2) }),
+            );
 
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
@@ -288,23 +287,29 @@ mod tests {
     #[test]
     fn test_nest_sub_router() {
         let planet = r()
-            .add("list", os()
-                .context::<TestCtx>()
-                .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("[]".to_string()) }))
-            .add("find", os()
-                .context::<TestCtx>()
-                .input::<Input>()
-                .output::<String>()
-                .handler(|_ctx: TestCtx, input: Input| async move {
-                    Ok(format!("planet {}", input.x))
-                }));
+            .add(
+                "list",
+                os().context::<TestCtx>()
+                    .output::<String>()
+                    .handler(|_ctx: TestCtx, _: ()| async { Ok("[]".to_string()) }),
+            )
+            .add(
+                "find",
+                os().context::<TestCtx>()
+                    .input::<Input>()
+                    .output::<String>()
+                    .handler(|_ctx: TestCtx, input: Input| async move {
+                        Ok(format!("planet {}", input.x))
+                    }),
+            );
 
         let router = r()
-            .add("ping", os()
-                .context::<TestCtx>()
-                .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }))
+            .add(
+                "ping",
+                os().context::<TestCtx>()
+                    .output::<String>()
+                    .handler(|_ctx: TestCtx, _: ()| async { Ok("pong".to_string()) }),
+            )
             .nest("planet", planet);
 
         let mut registry = ProcedureRegistry::new();
@@ -318,11 +323,12 @@ mod tests {
 
     #[test]
     fn test_deep_nesting() {
-        let inner = r()
-            .add("action", os()
-                .context::<TestCtx>()
+        let inner = r().add(
+            "action",
+            os().context::<TestCtx>()
                 .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("done".to_string()) }));
+                .handler(|_ctx: TestCtx, _: ()| async { Ok("done".to_string()) }),
+        );
 
         let middle = r().nest("inner", inner);
         let outer = r().nest("middle", middle);
@@ -335,20 +341,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_router_dispatch_end_to_end() {
-        let router = r()
-            .add("add", os()
-                .context::<TestCtx>()
+        let router = r().add(
+            "add",
+            os().context::<TestCtx>()
                 .input::<Input>()
                 .output::<i32>()
-                .handler(|ctx: TestCtx, input: Input| async move {
-                    Ok(ctx.value + input.x)
-                }));
+                .handler(|ctx: TestCtx, input: Input| async move { Ok(ctx.value + input.x) }),
+        );
 
         let mut registry = ProcedureRegistry::new();
         router.register_procedures("", &mut registry);
 
         let ctx = TestCtx { value: 10 };
-        let result = registry.call("add", ctx, serde_json::json!({ "x": 32 })).await;
+        let result = registry
+            .call("add", ctx, serde_json::json!({ "x": 32 }))
+            .await;
 
         assert!(result.is_ok());
         match result.unwrap() {
@@ -359,11 +366,12 @@ mod tests {
 
     #[test]
     fn test_prefix_propagation() {
-        let sub = r()
-            .add("proc", os()
-                .context::<TestCtx>()
+        let sub = r().add(
+            "proc",
+            os().context::<TestCtx>()
                 .output::<String>()
-                .handler(|_ctx: TestCtx, _: ()| async { Ok("ok".to_string()) }));
+                .handler(|_ctx: TestCtx, _: ()| async { Ok("ok".to_string()) }),
+        );
 
         let mut registry = ProcedureRegistry::new();
         sub.register_procedures("api/v1", &mut registry);

@@ -39,3 +39,6 @@ pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
 pub use router::Router;
 pub use router_builder::{r, RouterBuilder};
+
+// Re-export procedural macro
+pub use orpc_macros::router;

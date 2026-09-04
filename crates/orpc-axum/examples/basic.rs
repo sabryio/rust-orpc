@@ -1,9 +1,9 @@
-//! Basic example: define a type-safe Axum API with orpc using RouterBuilder.
+//! Basic example: define a type-safe Axum API with orpc using the router! macro.
 //!
-//! No struct definitions, no trait impls — just procedures composed inline.
+//! Clean, declarative syntax that mirrors TypeScript oRPC.
 
 use orpc_axum::AxumRouter;
-use orpc_core::{os, r, OrpcError};
+use orpc_core::{os, router, OrpcError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -34,68 +34,51 @@ struct Planet {
 
 #[tokio::main]
 async fn main() {
-    let planets = r()
-        .add(
-            "list",
-            os().context::<AppContext>()
+    let app = router! {
+        ping: os()
+            .context::<AppContext>()
+            .output::<String>()
+            .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
+
+        greet: os()
+            .context::<AppContext>()
+            .input::<GreetInput>()
+            .output::<GreetOutput>()
+            .handler(|ctx, input: GreetInput| async move {
+                if input.name.is_empty() {
+                    return Err(OrpcError::bad_request("Name cannot be empty"));
+                }
+                Ok(GreetOutput {
+                    message: format!("{}, {}!", ctx.greeting, input.name),
+                })
+            }),
+
+        planet: {
+            list: os()
+                .context::<AppContext>()
                 .output::<Vec<Planet>>()
-                .handler(|_ctx: AppContext, _: ()| async move {
+                .handler(|_ctx, _: ()| async move {
                     Ok(vec![
-                        Planet {
-                            id: 1,
-                            name: "Earth".to_string(),
-                        },
-                        Planet {
-                            id: 2,
-                            name: "Mars".to_string(),
-                        },
+                        Planet { id: 1, name: "Earth".to_string() },
+                        Planet { id: 2, name: "Mars".to_string() },
                     ])
                 }),
-        )
-        .add(
-            "find",
-            os().context::<AppContext>()
+
+            find: os()
+                .context::<AppContext>()
                 .input::<FindInput>()
                 .output::<Planet>()
-                .handler(|_ctx: AppContext, input: FindInput| async move {
+                .handler(|_ctx, input: FindInput| async move {
                     match input.id {
-                        1 => Ok(Planet {
-                            id: 1,
-                            name: "Earth".to_string(),
-                        }),
-                        _ => Err(OrpcError::not_found(format!(
-                            "Planet {} not found",
-                            input.id
-                        ))),
+                        1 => Ok(Planet { id: 1, name: "Earth".to_string() }),
+                        _ => Err(OrpcError::not_found(format!("Planet {} not found", input.id))),
                     }
-                }),
-        );
-
-    let app = r()
-        .add(
-            "ping",
-            os().context::<AppContext>()
-                .output::<String>()
-                .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
-        )
-        .add(
-            "greet",
-            os().context::<AppContext>()
-                .input::<GreetInput>()
-                .output::<GreetOutput>()
-                .handler(|ctx: AppContext, input: GreetInput| async move {
-                    if input.name.is_empty() {
-                        return Err(OrpcError::bad_request("Name cannot be empty"));
-                    }
-                    Ok(GreetOutput {
-                        message: format!("{}, {}!", ctx.greeting, input.name),
-                    })
-                }),
-        )
-        .nest("planet", planets)
-        .into_axum_router(AppContext {
-            greeting: "Hello".to_string(),
-        });
+                })
+        }
+    }
+    .into_axum_router(AppContext {
+        greeting: "Hello".to_string(),
+    });
 
     println!("🚀 Server running on http://127.0.0.1:3000");
     println!("   POST /ping");

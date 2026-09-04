@@ -8,8 +8,8 @@ name = "server"
 path = "src/main.rs"
 
 [[bin]]
-name = "orpc-server"
-path = "src/orpc_server.rs"
+name = "inspector"
+path = "src/bin/inspector.rs"
 
 [dependencies]
 axum = { version = "0.8.9", features = ["macros"] }
@@ -35,3 +35,4 @@ sea-orm = { version = "2.0.0-rc.37", default-features = false, features = [
 
 # Utilities
 chrono = "0.4"
+colored = "3.1.1"

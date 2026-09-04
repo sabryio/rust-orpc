@@ -68,6 +68,12 @@ export const contract = {
 const link = new OpenAPILink(contract, {
   origin: "http://127.0.0.1:3001",
   url: "/rpc",
+  fetch(url, init) {
+    return globalThis.fetch(url, {
+      ...init,
+      // credentials: "include",
+    });
+  },
 });
 
 // Create typed client from contract — HTTP (OpenAPILink)

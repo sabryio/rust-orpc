@@ -1,7 +1,9 @@
-//! Basic example of using orpc-axum to create a type-safe Axum API
+//! Basic example: define a type-safe Axum API with orpc using RouterBuilder.
+//!
+//! No struct definitions, no trait impls — just procedures composed inline.
 
 use orpc_axum::AxumRouter;
-use orpc_core::{os, OrpcError, Procedure, ProcedureRegistry, Router};
+use orpc_core::{os, r, OrpcError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -19,70 +21,90 @@ struct GreetOutput {
     message: String,
 }
 
-// Define your API as nested structs matching your contract shape
-struct ApiRouter {
-    ping: Procedure<AppContext, (), String>,
-    greet: Procedure<AppContext, GreetInput, GreetOutput>,
+#[derive(Deserialize)]
+struct FindInput {
+    id: i32,
 }
 
-// Implement the Router trait to register procedures
-impl Router<AppContext> for ApiRouter {
-    fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<AppContext>) {
-        let ping_path = if prefix.is_empty() {
-            "ping".to_string()
-        } else {
-            format!("{}/ping", prefix)
-        };
-        registry.insert(ping_path, &self.ping);
-
-        let greet_path = if prefix.is_empty() {
-            "greet".to_string()
-        } else {
-            format!("{}/greet", prefix)
-        };
-        registry.insert(greet_path, &self.greet);
-    }
+#[derive(Serialize)]
+struct Planet {
+    id: i32,
+    name: String,
 }
 
 #[tokio::main]
 async fn main() {
-    // Create your router with type-safe procedures
-    let router = ApiRouter {
-        ping: os()
-            .context::<AppContext>()
-            .output::<String>()
-            .handler(|_ctx: AppContext, _: ()| async move { Ok("pong".to_string()) }),
-        
-        greet: os()
-            .context::<AppContext>()
-            .input::<GreetInput>()
-            .output::<GreetOutput>()
-            .handler(|ctx: AppContext, input: GreetInput| async move {
-                if input.name.is_empty() {
-                    return Err(OrpcError::bad_request("Name cannot be empty"));
-                }
-                Ok(GreetOutput {
-                    message: format!("{}, {}!", ctx.greeting, input.name),
-                })
-            }),
-    };
+    let planets = r()
+        .add(
+            "list",
+            os().context::<AppContext>()
+                .output::<Vec<Planet>>()
+                .handler(|_ctx: AppContext, _: ()| async move {
+                    Ok(vec![
+                        Planet {
+                            id: 1,
+                            name: "Earth".to_string(),
+                        },
+                        Planet {
+                            id: 2,
+                            name: "Mars".to_string(),
+                        },
+                    ])
+                }),
+        )
+        .add(
+            "find",
+            os().context::<AppContext>()
+                .input::<FindInput>()
+                .output::<Planet>()
+                .handler(|_ctx: AppContext, input: FindInput| async move {
+                    match input.id {
+                        1 => Ok(Planet {
+                            id: 1,
+                            name: "Earth".to_string(),
+                        }),
+                        _ => Err(OrpcError::not_found(format!(
+                            "Planet {} not found",
+                            input.id
+                        ))),
+                    }
+                }),
+        );
 
-    // Create context
-    let ctx = AppContext {
-        greeting: "Hello".to_string(),
-    };
+    let app = r()
+        .add(
+            "ping",
+            os().context::<AppContext>()
+                .output::<String>()
+                .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
+        )
+        .add(
+            "greet",
+            os().context::<AppContext>()
+                .input::<GreetInput>()
+                .output::<GreetOutput>()
+                .handler(|ctx: AppContext, input: GreetInput| async move {
+                    if input.name.is_empty() {
+                        return Err(OrpcError::bad_request("Name cannot be empty"));
+                    }
+                    Ok(GreetOutput {
+                        message: format!("{}, {}!", ctx.greeting, input.name),
+                    })
+                }),
+        )
+        .nest("planet", planets)
+        .into_axum_router(AppContext {
+            greeting: "Hello".to_string(),
+        });
 
-    // Convert to Axum router - automatically registers all procedures
-    let app = router.into_axum_router(ctx);
-
-    // Start server
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
-    
     println!("🚀 Server running on http://127.0.0.1:3000");
     println!("   POST /ping");
     println!("   POST /greet");
+    println!("   POST /planet/list");
+    println!("   POST /planet/find");
 
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .unwrap();
     axum::serve(listener, app).await.unwrap();
 }

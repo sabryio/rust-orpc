@@ -1,8 +1,11 @@
-//! Integration test: orpc router to Axum router conversion
+//! Integration test: orpc router to Axum router conversion using RouterBuilder
 
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use orpc_axum::AxumRouter;
-use orpc_core::{os, OrpcError, Procedure, ProcedureRegistry, Router};
+use orpc_core::{os, r, OrpcError};
 use serde::{Deserialize, Serialize};
 use tower::ServiceExt;
 
@@ -22,90 +25,61 @@ struct Planet {
     name: String,
 }
 
-struct PlanetRouter {
-    list: Procedure<AppContext, (), Vec<Planet>>,
-    find: Procedure<AppContext, FindInput, Planet>,
-}
-
-impl Router<AppContext> for PlanetRouter {
-    fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<AppContext>) {
-        let list_path = if prefix.is_empty() {
-            "list".to_string()
-        } else {
-            format!("{}/list", prefix)
-        };
-        registry.insert(list_path, &self.list);
-
-        let find_path = if prefix.is_empty() {
-            "find".to_string()
-        } else {
-            format!("{}/find", prefix)
-        };
-        registry.insert(find_path, &self.find);
-    }
-}
-
-struct ApiRouter {
-    ping: Procedure<AppContext, (), String>,
-    planet: PlanetRouter,
-}
-
-impl Router<AppContext> for ApiRouter {
-    fn register_procedures(&self, prefix: &str, registry: &mut ProcedureRegistry<AppContext>) {
-        let ping_path = if prefix.is_empty() {
-            "ping".to_string()
-        } else {
-            format!("{}/ping", prefix)
-        };
-        registry.insert(ping_path, &self.ping);
-
-        let planet_prefix = if prefix.is_empty() {
-            "planet".to_string()
-        } else {
-            format!("{}/planet", prefix)
-        };
-        self.planet.register_procedures(&planet_prefix, registry);
-    }
-}
-
 #[tokio::test]
 async fn test_into_axum_router() {
-    let router = ApiRouter {
-        ping: os()
-            .context::<AppContext>()
-            .output::<String>()
-            .handler(|ctx: AppContext, _: ()| async move {
-                Ok(format!("{} pong", ctx.prefix))
-            }),
-        planet: PlanetRouter {
-            list: os()
-                .context::<AppContext>()
+    let planet = r()
+        .add(
+            "list",
+            os().context::<AppContext>()
                 .output::<Vec<Planet>>()
                 .handler(|_ctx: AppContext, _: ()| async move {
                     Ok(vec![
-                        Planet { id: 1, name: "Earth".to_string() },
-                        Planet { id: 2, name: "Mars".to_string() },
+                        Planet {
+                            id: 1,
+                            name: "Earth".to_string(),
+                        },
+                        Planet {
+                            id: 2,
+                            name: "Mars".to_string(),
+                        },
                     ])
                 }),
-            find: os()
-                .context::<AppContext>()
+        )
+        .add(
+            "find",
+            os().context::<AppContext>()
                 .input::<FindInput>()
                 .output::<Planet>()
                 .handler(|_ctx: AppContext, input: FindInput| async move {
                     match input.id {
-                        1 => Ok(Planet { id: 1, name: "Earth".to_string() }),
-                        2 => Ok(Planet { id: 2, name: "Mars".to_string() }),
-                        _ => Err(OrpcError::not_found(format!("Planet {} not found", input.id))),
+                        1 => Ok(Planet {
+                            id: 1,
+                            name: "Earth".to_string(),
+                        }),
+                        2 => Ok(Planet {
+                            id: 2,
+                            name: "Mars".to_string(),
+                        }),
+                        _ => Err(OrpcError::not_found(format!(
+                            "Planet {} not found",
+                            input.id
+                        ))),
                     }
                 }),
-        },
-    };
+        );
 
-    let ctx = AppContext {
+    let api = r()
+        .add(
+            "ping",
+            os().context::<AppContext>().output::<String>().handler(
+                |ctx: AppContext, _: ()| async move { Ok(format!("{} pong", ctx.prefix)) },
+            ),
+        )
+        .nest("planet", planet);
+
+    let app = api.into_axum_router(AppContext {
         prefix: "test".to_string(),
-    };
-
-    let app = router.into_axum_router(ctx);
+    });
 
     // Test ping endpoint
     let response = app
@@ -175,33 +149,38 @@ async fn test_into_axum_router() {
 
 #[tokio::test]
 async fn test_error_handling() {
-    let router = ApiRouter {
-        ping: os()
-            .context::<AppContext>()
-            .output::<String>()
-            .handler(|_ctx: AppContext, _: ()| async move { Ok("pong".to_string()) }),
-        planet: PlanetRouter {
-            list: os()
-                .context::<AppContext>()
-                .output::<Vec<Planet>>()
-                .handler(|_ctx: AppContext, _: ()| async move { Ok(vec![]) }),
-            find: os()
-                .context::<AppContext>()
-                .input::<FindInput>()
-                .output::<Planet>()
-                .handler(|_ctx: AppContext, input: FindInput| async move {
-                    Err(OrpcError::not_found(format!("Planet {} not found", input.id)))
-                }),
-        },
-    };
+    let app = r()
+        .add(
+            "ping",
+            os().context::<AppContext>()
+                .output::<String>()
+                .handler(|_ctx: AppContext, _: ()| async { Ok("pong".to_string()) }),
+        )
+        .nest(
+            "planet",
+            r().add(
+                "list",
+                os().context::<AppContext>()
+                    .output::<Vec<Planet>>()
+                    .handler(|_ctx: AppContext, _: ()| async { Ok(vec![]) }),
+            )
+            .add(
+                "find",
+                os().context::<AppContext>()
+                    .input::<FindInput>()
+                    .output::<Planet>()
+                    .handler(|_ctx: AppContext, input: FindInput| async move {
+                        Err(OrpcError::not_found(format!(
+                            "Planet {} not found",
+                            input.id
+                        )))
+                    }),
+            ),
+        )
+        .into_axum_router(AppContext {
+            prefix: "test".to_string(),
+        });
 
-    let ctx = AppContext {
-        prefix: "test".to_string(),
-    };
-
-    let app = router.into_axum_router(ctx);
-
-    // Test error response
     let response = app
         .oneshot(
             Request::builder()
@@ -220,5 +199,42 @@ async fn test_error_handling() {
         .unwrap();
     let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(error["code"], "NOT_FOUND");
-    assert!(error["message"].as_str().unwrap().contains("Planet 999 not found"));
+    assert!(error["message"]
+        .as_str()
+        .unwrap()
+        .contains("Planet 999 not found"));
+}
+
+#[tokio::test]
+async fn test_deep_nesting() {
+    let app = r()
+        .nest(
+            "api",
+            r().nest(
+                "v1",
+                r().add(
+                    "status",
+                    os().context::<AppContext>()
+                        .output::<String>()
+                        .handler(|_ctx: AppContext, _: ()| async { Ok("ok".to_string()) }),
+                ),
+            ),
+        )
+        .into_axum_router(AppContext {
+            prefix: "".to_string(),
+        });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/status")
+                .header("content-type", "application/json")
+                .body(Body::from("null"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
 }

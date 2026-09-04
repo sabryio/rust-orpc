@@ -30,6 +30,7 @@ mod error;
 mod procedure;
 mod registry;
 mod router;
+mod router_builder;
 
 // Re-export public API
 pub use builder::{os, ProcedureBuilder};
@@ -37,3 +38,4 @@ pub use error::{IntoOrpcError, OrpcError};
 pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
 pub use router::Router;
+pub use router_builder::{r, RouterBuilder};

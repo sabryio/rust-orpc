@@ -1,14 +1,19 @@
 use axum::{
-    extract::State,
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     http::StatusCode,
     response::sse::Event,
     response::{IntoResponse, Json, Response, Sse},
-    routing::post,
+    routing::{get, post},
     Router,
 };
 use futures::Stream;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use serde_json::Value;
+use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -250,6 +255,328 @@ async fn stream_async() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     )
 }
 
+// ===== WebSocket — oRPC Peer Protocol =====
+
+/// The RPC body envelope: { "json": <value>, "meta": [] }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RpcBody {
+    json: Value,
+    #[serde(default)]
+    meta: Vec<Value>,
+}
+
+/// Incoming request payload inside a peer message
+#[derive(Debug, Deserialize)]
+struct PeerRequestJson {
+    url: String,
+    #[serde(default = "default_method")]
+    method: String,
+    body: Option<RpcBody>,
+}
+
+fn default_method() -> String {
+    "POST".to_string()
+}
+
+/// A peer message sent by the client
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum ClientMessage {
+    Request { id: String, json: PeerRequestJson },
+    Cancel { id: String },
+}
+
+/// A peer message sent by the server
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum ServerMessage {
+    Response {
+        id: String,
+        json: ServerResponseJson,
+    },
+    EventStream {
+        id: String,
+        json: EventStreamJson,
+    },
+    Cancel {
+        id: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+struct ServerResponseJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    headers: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<RpcBody>,
+}
+
+#[derive(Debug, Serialize)]
+struct EventStreamJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Value>,
+}
+
+type WsSender = Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>;
+
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: AppState) {
+    use futures::StreamExt as FuturesStreamExt;
+
+    let (sink, mut stream) = socket.split();
+    let sender: WsSender = Arc::new(Mutex::new(sink));
+
+    // Track spawned tasks so we can abort on cancel
+    let tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    while let Some(Ok(msg)) = futures::StreamExt::next(&mut stream).await {
+        let text = match msg {
+            Message::Text(t) => t,
+            Message::Close(_) => break,
+            _ => continue,
+        };
+
+        let client_msg: ClientMessage = match serde_json::from_str(&text) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        match client_msg {
+            ClientMessage::Cancel { id } => {
+                if let Some(handle) = tasks.lock().await.remove(&id) {
+                    handle.abort();
+                }
+            }
+            ClientMessage::Request { id, json: req_json } => {
+                let sender_clone = Arc::clone(&sender);
+                let state_clone = state.clone();
+                let id_clone = id.clone();
+                let tasks_clone = Arc::clone(&tasks);
+
+                let handle = tokio::spawn(async move {
+                    dispatch_ws(id_clone.clone(), req_json, sender_clone, state_clone).await;
+                    tasks_clone.lock().await.remove(&id_clone);
+                });
+
+                tasks.lock().await.insert(id, handle);
+            }
+        }
+    }
+
+    // Abort all in-flight tasks when connection closes
+    let mut locked = tasks.lock().await;
+    for (_, handle) in locked.drain() {
+        handle.abort();
+    }
+}
+
+async fn send_ws(sender: &WsSender, msg: ServerMessage) {
+    use futures::SinkExt;
+    if let Ok(text) = serde_json::to_string(&msg) {
+        let _ = sender.lock().await.send(Message::Text(text.into())).await;
+    }
+}
+
+async fn dispatch_ws(id: String, req: PeerRequestJson, sender: WsSender, state: AppState) {
+    // Strip /rpc prefix and split into path segments
+    let path = req.url.trim_start_matches("/rpc");
+    let input = req.body.map(|b| b.json);
+
+    match path {
+        "/ping" => {
+            send_ws(
+                &sender,
+                ServerMessage::Response {
+                    id,
+                    json: ServerResponseJson {
+                        status: None,
+                        headers: None,
+                        body: Some(RpcBody {
+                            json: Value::String("pong".to_string()),
+                            meta: vec![],
+                        }),
+                    },
+                },
+            )
+            .await;
+        }
+
+        "/planet/list" => {
+            let planets: Vec<Value> = state
+                .planets
+                .iter()
+                .map(|p| serde_json::to_value(p).unwrap())
+                .collect();
+            send_ws(
+                &sender,
+                ServerMessage::Response {
+                    id,
+                    json: ServerResponseJson {
+                        status: None,
+                        headers: None,
+                        body: Some(RpcBody {
+                            json: Value::Array(planets),
+                            meta: vec![],
+                        }),
+                    },
+                },
+            )
+            .await;
+        }
+
+        "/planet/find" => {
+            let result: Result<Value, RpcError> = (|| {
+                let input = input.ok_or_else(|| RpcError::bad_request("Missing input"))?;
+                let id_val = input
+                    .get("id")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| RpcError::bad_request("Missing id"))?
+                    as i32;
+                state
+                    .planets
+                    .iter()
+                    .find(|p| p.id == id_val)
+                    .map(|p| serde_json::to_value(p).unwrap())
+                    .ok_or_else(|| {
+                        RpcError::not_found(format!("Planet with id {id_val} not found"))
+                    })
+            })();
+
+            match result {
+                Ok(val) => {
+                    send_ws(
+                        &sender,
+                        ServerMessage::Response {
+                            id,
+                            json: ServerResponseJson {
+                                status: None,
+                                headers: None,
+                                body: Some(RpcBody {
+                                    json: val,
+                                    meta: vec![],
+                                }),
+                            },
+                        },
+                    )
+                    .await
+                }
+                Err(e) => {
+                    send_ws(
+                        &sender,
+                        ServerMessage::Response {
+                            id,
+                            json: ServerResponseJson {
+                                status: Some(if e.code == "NOT_FOUND" { 404 } else { 400 }),
+                                headers: None,
+                                body: Some(RpcBody {
+                                    json: serde_json::json!({
+                                        "defined": false,
+                                        "inferable": false,
+                                        "code": e.code,
+                                        "message": e.message,
+                                        "data": null
+                                    }),
+                                    meta: vec![],
+                                }),
+                            },
+                        },
+                    )
+                    .await
+                }
+            }
+        }
+
+        "/stream-async" | "/streamAsync" => {
+            // Send initial response with event-stream header — no body
+            let mut headers = HashMap::new();
+            headers.insert("standard-server".to_string(), "event-stream".to_string());
+
+            send_ws(
+                &sender,
+                ServerMessage::Response {
+                    id: id.clone(),
+                    json: ServerResponseJson {
+                        status: None,
+                        headers: Some(headers),
+                        body: None,
+                    },
+                },
+            )
+            .await;
+
+            // Stream events
+            for i in 0u32..15 {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+
+                let data = serde_json::json!({
+                    "json": {
+                        "message": format!("WS Async Stream Event #{i}"),
+                        "count": i
+                    },
+                    "meta": []
+                });
+
+                send_ws(
+                    &sender,
+                    ServerMessage::EventStream {
+                        id: id.clone(),
+                        json: EventStreamJson {
+                            event: None, // None = "message"
+                            data: Some(data),
+                        },
+                    },
+                )
+                .await;
+            }
+
+            // Close event
+            send_ws(
+                &sender,
+                ServerMessage::EventStream {
+                    id,
+                    json: EventStreamJson {
+                        event: Some("close".to_string()),
+                        data: None,
+                    },
+                },
+            )
+            .await;
+        }
+
+        _ => {
+            send_ws(
+                &sender,
+                ServerMessage::Response {
+                    id,
+                    json: ServerResponseJson {
+                        status: Some(404),
+                        headers: None,
+                        body: Some(RpcBody {
+                            json: serde_json::json!({
+                                "defined": false,
+                                "inferable": false,
+                                "code": "NOT_FOUND",
+                                "message": format!("No procedure at {path}"),
+                                "data": null
+                            }),
+                            meta: vec![],
+                        }),
+                    },
+                },
+            )
+            .await;
+        }
+    }
+}
+
 // ===== Main =====
 
 #[tokio::main]
@@ -329,6 +656,7 @@ async fn main() {
         .route("/rpc/planet/create", post(create_planet))
         .route("/rpc/stream", post(stream_events))
         .route("/rpc/stream-async", post(stream_async))
+        .route("/ws", get(ws_handler))
         // Add CORS middleware
         .layer(
             CorsLayer::new()
@@ -351,6 +679,7 @@ async fn main() {
     println!("   - POST /rpc/planet/create");
     println!("   - POST /rpc/stream");
     println!("   - POST /rpc/stream-async");
+    println!("   - WS   /ws  (oRPC peer protocol)");
 
     axum::serve(listener, app).await.unwrap();
 }

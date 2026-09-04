@@ -1,4 +1,5 @@
 import { createORPCClient, isInferableError } from "@orpc/client";
+import { RPCLink } from "@orpc/client/websocket";
 import { OpenAPILink } from "@orpc/openapi/fetch";
 import { openapi } from "@orpc/openapi";
 import { oc, type RouterContractClient } from "@orpc/contract";
@@ -69,9 +70,17 @@ const link = new OpenAPILink(contract, {
   url: "/rpc",
 });
 
-// Create typed client from contract
+// Create typed client from contract — HTTP (OpenAPILink)
 export const client: RouterContractClient<typeof contract> =
   createORPCClient(link);
+
+// Create typed client from contract — WebSocket (RPCLink)
+export const wsClient: RouterContractClient<typeof contract> = createORPCClient(
+  new RPCLink({
+    connect: () => new WebSocket("ws://127.0.0.1:3001/ws"),
+    reconnect: { enabled: true },
+  }),
+);
 
 // Create TanStack Query utilities
 export const orpc = createTanstackQueryUtils(client);

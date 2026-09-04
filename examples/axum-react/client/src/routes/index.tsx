@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState, useEffect, useRef } from "react";
-import { client, orpc, isRpcError } from "#/rpc";
+import { client, orpc, isInferableError } from "#/rpc";
 import { consumeAsyncIterator, getEventMeta } from "@orpc/client";
 
 export const Route = createFileRoute("/")({ component: Home });
@@ -213,7 +213,7 @@ function PlanetFind() {
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-          {isRpcError(error) ? (
+          {isInferableError(error) ? (
             <>
               {error.code === "NOT_FOUND" && (
                 <div className="flex items-start gap-2">
@@ -313,7 +313,7 @@ function CreatePlanet() {
 
       {mutation.error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
-          {isRpcError(mutation.error) ? (
+          {isInferableError(mutation.error) ? (
             <>
               {mutation.error.code === "BAD_REQUEST" && (
                 <div className="flex items-start gap-2 text-red-800">
@@ -335,7 +335,7 @@ function CreatePlanet() {
               )}
               {mutation.error.code !== "BAD_REQUEST" &&
                 mutation.error.code !== "INTERNAL_ERROR" && (
-                  <p className="text-red-800">{mutation.error.message}</p>
+                  <p className="text-red-800">{mutation.error}</p>
                 )}
             </>
           ) : (

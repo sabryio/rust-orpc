@@ -300,9 +300,24 @@ export const learningContract = {
 
 // ===== Client Setup =====
 
+// Mock function to simulate getting auth token
+// In a real app, this would get from localStorage, session, etc.
+const getAuthToken = () => {
+  return "demo-token-12345";
+};
+
 const link = new OpenAPILink(learningContract, {
   origin: "http://localhost:3002", // Point to inspector server
   url: "/",
+
+  // Static headers sent with EVERY request
+  // These will be visible in the inspector server terminal
+  headers: {
+    authorization: `Bearer ${getAuthToken()}`,
+    "x-api-key": "learning-demo-key",
+    "x-client-version": "1.0.0",
+  },
+
   async fetch(url, init, _options, path) {
     console.group(`🔍 oRPC Request: ${path.join(".")}`);
     console.log("URL:", url);

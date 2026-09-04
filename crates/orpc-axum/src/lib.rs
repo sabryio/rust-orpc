@@ -29,6 +29,7 @@
 //! ```
 
 use axum::{
+    extract::State,
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive},
@@ -77,24 +78,23 @@ where
             let route_path_clone = route_path.clone();
 
             // POST/PUT/PATCH: body is optional — missing body treated as null input
-            let handler = move |body: Option<axum::extract::Json<serde_json::Value>>| {
-                let registry = Arc::clone(&registry_clone);
-                let context = Arc::clone(&context_clone);
-                let key = route_path_clone.clone();
-                let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
-                async move { handle_procedure(registry, context, key, input).await }
-            };
+            let handler =
+                move |state: State<Arc<Ctx>>,
+                      body: Option<axum::extract::Json<serde_json::Value>>| {
+                    let registry = Arc::clone(&registry_clone);
+                    let key = route_path_clone.clone();
+                    let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
+                    async move { handle_procedure(registry, state.0, key, input).await }
+                };
 
             // GET/DELETE: no body
             let registry_clone2 = Arc::clone(&registry);
-            let context_clone2 = Arc::clone(&context_arc);
             let route_path_clone2 = route_path.clone();
 
-            let handler_no_body = move || {
+            let handler_no_body = move |state: State<Arc<Ctx>>| {
                 let registry = Arc::clone(&registry_clone2);
-                let context = Arc::clone(&context_clone2);
                 let key = route_path_clone2.clone();
-                async move { handle_procedure(registry, context, key, serde_json::Value::Null).await }
+                async move { handle_procedure(registry, state.0, key, serde_json::Value::Null).await }
             };
 
             axum_router = match method {
@@ -106,12 +106,14 @@ where
             };
         }
 
-        axum_router.layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        axum_router
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
+            )
+            .with_state(context_arc)
     }
 }
 

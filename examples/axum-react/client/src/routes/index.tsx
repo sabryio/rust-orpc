@@ -1,16 +1,23 @@
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  client,
+  consumeAsyncIterator,
+  getEventMeta,
+  isInferableError,
+  orpc,
+  ORPCError,
+  wsClient,
+} from "#/rpc";
 import {
   QueryClient,
   QueryClientProvider,
-  useQuery,
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { useState, useEffect, useRef } from "react";
-import { client, orpc, wsClient, isInferableError } from "#/rpc";
-import { consumeAsyncIterator, getEventMeta, ORPCError } from "@orpc/client";
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 
 export const Route = createFileRoute("/")({ component: Home });
 

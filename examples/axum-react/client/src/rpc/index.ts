@@ -1,4 +1,4 @@
-import { createORPCClient, isInferableError } from "@orpc/client";
+import { createORPCClient, isInferableError, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/websocket";
 import { OpenAPILink } from "@orpc/openapi/fetch";
 import { openapi } from "@orpc/openapi";
@@ -6,6 +6,7 @@ import { oc, type RouterContractClient } from "@orpc/contract";
 import { asyncIteratorObject } from "@orpc/contract";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { z } from "zod";
+export { consumeAsyncIterator, getEventMeta } from "@orpc/client";
 
 // Define Zod schemas for validation
 const PlanetSchema = z.object({
@@ -91,4 +92,4 @@ export const wsClient: RouterContractClient<typeof contract> = createORPCClient(
 // Create TanStack Query utilities
 export const orpc = createTanstackQueryUtils(client);
 
-export { isInferableError };
+export { isInferableError, ORPCError };

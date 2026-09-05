@@ -31,9 +31,6 @@ mod models;
 
 use models::Db;
 
-// Import handlers so inventory::submit! calls are linked in
-use handlers::{ping, planet};
-
 #[tokio::main]
 async fn main() {
     // Generate TypeScript contract before starting the server
@@ -49,9 +46,7 @@ async fn main() {
     let db = Db::new();
 
     // ✨ Auto-built Axum router — no manual .route() calls needed
-    // TODO (T012): orpc::router() will be wired once HandlerRegistration is implemented.
-    // For now, build manually using discovered metadata as a demonstration.
-    let app = build_router_from_metadata(db);
+    let app = orpc::router(db);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3002")
         .await
@@ -68,25 +63,4 @@ async fn main() {
     }
 
     axum::serve(listener, app).await.expect("server error");
-}
-
-/// Temporary: build Axum router by reading discovered metadata.
-///
-/// In the final implementation this is replaced by `orpc::router()`.
-fn build_router_from_metadata(_db: Db) -> axum::Router {
-    // Show discovered metadata
-    let count = orpc::inventory::iter::<orpc::HandlerMetadata>
-        .into_iter()
-        .count();
-    println!("\n📦 {count} handlers registered via #[orpc]");
-
-    // TODO (T012): full auto-router wiring
-    axum::Router::new()
-}
-
-// Force linking of handler modules so inventory::submit! calls execute
-#[allow(unused)]
-fn _ensure_handlers_linked() {
-    let _ = ping::ping as fn() -> _;
-    let _ = planet::list_planets as fn(_) -> _;
 }

@@ -34,9 +34,11 @@
 //! ```
 
 pub mod metadata;
+pub mod registration;
 pub mod router;
 
 pub use metadata::HandlerMetadata;
+pub use registration::HandlerRegistration;
 pub use router::router;
 
 // Re-export inventory so users don't need to depend on it directly

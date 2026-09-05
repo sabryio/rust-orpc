@@ -103,14 +103,69 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
     // Extract output type name from return type
     let output_type_name = extract_output_type_name(&func.sig.output);
 
-    // Extract input type name from first non-State parameter (simplified)
+    // Extract input type name from first Json<T> parameter
     let input_type_name = extract_input_type_name(&func.sig.inputs);
+
+    // Extract state type from State<T> parameter — used in factory downcast
+    let state_type = extract_state_type(&func.sig.inputs);
+
+    let registration = if let Some(state_ty) = state_type {
+        // Handler extracts State<S> — downcast to S before building router
+        quote! {
+            ::orpc::inventory::submit! {
+                ::orpc::HandlerRegistration {
+                    path: #path,
+                    method: #method,
+                    factory: |state: ::std::sync::Arc<dyn ::std::any::Any + Send + Sync>| {
+                        use ::axum::routing::{delete, get, patch, post, put};
+                        let method_router = match #method {
+                            "GET"    => get(#fn_name),
+                            "POST"   => post(#fn_name),
+                            "PUT"    => put(#fn_name),
+                            "PATCH"  => patch(#fn_name),
+                            "DELETE" => delete(#fn_name),
+                            _        => post(#fn_name),
+                        };
+                        if let Some(typed_state) = state.downcast_ref::<#state_ty>() {
+                            ::axum::Router::new()
+                                .route(#path, method_router)
+                                .with_state(typed_state.clone())
+                        } else {
+                            ::axum::Router::new()
+                        }
+                    },
+                }
+            }
+        }
+    } else {
+        // Stateless handler — no State<S> parameter
+        quote! {
+            ::orpc::inventory::submit! {
+                ::orpc::HandlerRegistration {
+                    path: #path,
+                    method: #method,
+                    factory: |_state: ::std::sync::Arc<dyn ::std::any::Any + Send + Sync>| {
+                        use ::axum::routing::{delete, get, patch, post, put};
+                        let method_router = match #method {
+                            "GET"    => get(#fn_name),
+                            "POST"   => post(#fn_name),
+                            "PUT"    => put(#fn_name),
+                            "PATCH"  => patch(#fn_name),
+                            "DELETE" => delete(#fn_name),
+                            _        => post(#fn_name),
+                        };
+                        ::axum::Router::new().route(#path, method_router)
+                    },
+                }
+            }
+        }
+    };
 
     quote! {
         // Original function — completely unchanged
         #func
 
-        // Register metadata globally via inventory (re-exported from orpc)
+        // Register metadata for TypeScript contract generation
         ::orpc::inventory::submit! {
             ::orpc::HandlerMetadata {
                 name: #fn_name_str,
@@ -121,10 +176,34 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
                 module_path: ::std::module_path!(),
             }
         }
+
+        // Register handler factory for auto-router construction
+        #registration
     }
 }
 
-/// Extract the inner type from `-> Json<T>` or `-> Result<Json<T>, E>`.
+/// Extract the state type `S` from a `State<S>` parameter in the function signature.
+///
+/// Returns `Some(Type)` if found, `None` if the handler doesn't extract state.
+fn extract_state_type(inputs: &syn::punctuated::Punctuated<syn::FnArg, Token![,]>) -> Option<Type> {
+    for input in inputs {
+        if let syn::FnArg::Typed(pat_type) = input {
+            if let Type::Path(type_path) = &*pat_type.ty {
+                let last = type_path.path.segments.last()?;
+                if last.ident == "State" {
+                    if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                            return Some(inner.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract the output type name from `-> Json<T>` or `-> Result<Json<T>, E>`.
 ///
 /// Returns a string representation of `T`.
 fn extract_output_type_name(return_type: &ReturnType) -> String {

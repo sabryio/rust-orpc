@@ -1,24 +1,27 @@
 use crate::infrastructure::{
-    auth::{middleware::BaseContext, schema::AppAuthSchema},
+    auth::{guard::AppContext, middleware::BaseContext, schema::AppAuthSchema},
     repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
 };
 use axum::Router;
-use better_auth::{integrations::axum::OptionalSession, BetterAuth};
-use orpc_axum::better_auth::BetterAuthExt;
+use better_auth::BetterAuth;
+use orpc_axum::better_auth::{BetterAuthContext, BetterAuthExt};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 pub async fn run_server(
-    orpc_router: impl orpc_axum::AxumRouter<BaseContext>,
+    orpc_router: impl orpc_axum::AxumRouter<AppContext>,
     auth_router: Router<Arc<BetterAuth<AppAuthSchema>>>,
     auth: Arc<BetterAuth<AppAuthSchema>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let base_ctx = BaseContext {
+    // User-defined context — only their own fields, no session boilerplate
+    let inner_ctx = BaseContext {
         planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
-        session: Arc::new(OptionalSession(None)),
     };
 
-    // ✨ Dream API: schema inferred from BaseContext impl, no turbofish needed
+    // BetterAuthContext wraps it and manages the session automatically
+    let base_ctx = BetterAuthContext::new(inner_ctx);
+
+    // ✨ Dream API: no build_context, no session_layer, no session field in BaseContext
     let orpc_with_auth = orpc_router
         .into_axum_router_with_better_auth(base_ctx)
         .with_better_auth(auth.clone());

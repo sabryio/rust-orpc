@@ -9,46 +9,115 @@
 //!
 //! ## Usage
 //!
-//! 1. Implement `WithBetterAuth` on your context (associated type — no turbofish!):
+//! 1. Define your context with only the fields you need:
 //!
 //! ```rust,ignore
-//! impl WithBetterAuth for BaseContext {
-//!     type Schema = AppAuthSchema;
-//!
-//!     fn inject_session(&mut self, session: Arc<OptionalSession<AppAuthSchema>>) {
-//!         self.session = session;
-//!     }
+//! #[derive(Clone)]
+//! struct BaseContext {
+//!     planet_repo: Arc<dyn PlanetRepository>,
+//!     // No session field needed!
 //! }
 //! ```
 //!
-//! 2. Wire up — schema is inferred, no turbofish needed:
+//! 2. Wire up — `BetterAuthContext<Schema, Ctx>` wraps your context and handles the session:
 //!
 //! ```rust,ignore
 //! let app = orpc_router
-//!     .into_axum_router_with_better_auth(base_ctx) // inferred from BaseContext impl
+//!     .into_axum_router_with_better_auth(base_ctx)
 //!     .with_better_auth(auth);
+//! ```
+//!
+//! 3. In handlers, session is available via `.session()`:
+//!
+//! ```rust,ignore
+//! async fn get_profile(
+//!     ctx: BetterAuthContext<AppAuthSchema, BaseContext>,
+//!     _: (),
+//! ) -> Result<Json<Value>, OrpcError> {
+//!     let session = ctx.require_session()?; // Returns Err if not authenticated
+//!     Ok(Json(json!({ "email": session.user.email() })))
+//! }
 //! ```
 
 use axum::{middleware, Router};
-use better_auth::{integrations::axum::OptionalSession, AuthSchema, BetterAuth};
+use better_auth::{AuthSchema, BetterAuth, integrations::axum::{CurrentSession, OptionalSession}};
 use std::sync::Arc;
+
+/// Wraps a user-defined context with a Better-Auth session slot.
+///
+/// Users define only their own fields. The session is managed here automatically
+/// by `.with_better_auth()` — no session field needed in the inner context.
+///
+/// Access the inner context via `Deref`, and the session via `.session()` or `.require_session()`.
+pub struct BetterAuthContext<Schema, Ctx>
+where
+    Schema: AuthSchema + 'static,
+    Ctx: Clone + Send + Sync + 'static,
+{
+    pub inner: Ctx,
+    session: Arc<OptionalSession<Schema>>,
+}
+
+impl<Schema, Ctx> Clone for BetterAuthContext<Schema, Ctx>
+where
+    Schema: AuthSchema + 'static,
+    Ctx: Clone + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            session: Arc::clone(&self.session),
+        }
+    }
+}
+
+impl<Schema, Ctx> BetterAuthContext<Schema, Ctx>
+where
+    Schema: AuthSchema + 'static,
+    Ctx: Clone + Send + Sync + 'static,
+{
+    /// Create a new BetterAuthContext with no session (used as the base context).
+    pub fn new(inner: Ctx) -> Self {
+        Self {
+            inner,
+            session: Arc::new(OptionalSession(None)),
+        }
+    }
+
+    /// Returns the session if authenticated, otherwise `None`.
+    pub fn session(&self) -> Option<&CurrentSession<Schema>> {
+        self.session.0.as_ref()
+    }
+
+    /// Returns the session or an `OrpcError::unauthorized` if not authenticated.
+    pub fn require_session(&self) -> Result<&CurrentSession<Schema>, orpc_core::OrpcError> {
+        self.session
+            .0
+            .as_ref()
+            .ok_or_else(|| orpc_core::OrpcError::unauthorized("Authentication required"))
+    }
+
+    /// Returns true if a session exists.
+    pub fn is_authenticated(&self) -> bool {
+        self.session.0.is_some()
+    }
+}
+
+impl<Schema, Ctx> std::ops::Deref for BetterAuthContext<Schema, Ctx>
+where
+    Schema: AuthSchema + 'static,
+    Ctx: Clone + Send + Sync + 'static,
+{
+    type Target = Ctx;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 /// Implement this trait on your context to opt into automatic session injection.
 ///
 /// The associated type `Schema` means callers never need to write `::<AppAuthSchema>` —
 /// the compiler infers it from the `impl`.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// impl WithBetterAuth for BaseContext {
-///     type Schema = AppAuthSchema;
-///
-///     fn inject_session(&mut self, session: Arc<OptionalSession<AppAuthSchema>>) {
-///         self.session = session;
-///     }
-/// }
-/// ```
 pub trait WithBetterAuth: Clone + Send + Sync + 'static {
     /// The Better-Auth schema — inferred from the impl, never written by callers.
     type Schema: AuthSchema + 'static;
@@ -58,16 +127,28 @@ pub trait WithBetterAuth: Clone + Send + Sync + 'static {
     fn inject_session(&mut self, session: Arc<OptionalSession<Self::Schema>>);
 }
 
+/// Blanket implementation of `WithBetterAuth` for `BetterAuthContext<Schema, Ctx>`.
+///
+/// This means any `BetterAuthContext` automatically supports session injection
+/// without the user writing any boilerplate.
+impl<Schema, Ctx> WithBetterAuth for BetterAuthContext<Schema, Ctx>
+where
+    Schema: AuthSchema + 'static,
+    Ctx: Clone + Send + Sync + 'static,
+{
+    type Schema = Schema;
+
+    fn inject_session(&mut self, session: Arc<OptionalSession<Schema>>) {
+        self.session = session;
+    }
+}
+
 /// Extension trait added to `axum::Router` when `better-auth` feature is enabled.
 pub trait BetterAuthExt<Schema>
 where
     Schema: AuthSchema + 'static,
 {
     /// Wire Better-Auth into this router.
-    ///
-    /// Adds session extraction middleware — the session is stored in request
-    /// extensions as `Arc<OptionalSession<Schema>>` and automatically injected
-    /// into contexts that implement `WithBetterAuth`.
     fn with_better_auth(self, auth: Arc<BetterAuth<Schema>>) -> Router;
 }
 

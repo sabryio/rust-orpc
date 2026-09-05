@@ -159,13 +159,15 @@ where
     /// Converts this orpc router into an Axum router with automatic Better-Auth
     /// session injection.
     ///
-    /// Requires your context to implement `WithBetterAuth`. The schema type is
-    /// inferred — no turbofish needed.
+    /// Requires the context to be `BetterAuthContext<Schema, InnerCtx>`.
+    /// The schema type is inferred — no turbofish needed.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use orpc_axum::{AxumRouter, better_auth::BetterAuthExt};
+    /// use orpc_axum::better_auth::{BetterAuthContext, BetterAuthExt};
+    ///
+    /// let base_ctx = BetterAuthContext::new(inner_ctx);
     ///
     /// let app = orpc_router
     ///     .into_axum_router_with_better_auth(base_ctx) // Schema inferred!
@@ -180,11 +182,9 @@ where
         build_axum_router(self, ctx, |mut ctx, ext| {
             use ::better_auth::integrations::axum::OptionalSession;
 
-            if let Some(session) = ext.get::<Arc<
-                OptionalSession<
-                    <Ctx as crate::better_auth::WithBetterAuth>::Schema,
-                >,
-            >>() {
+            if let Some(session) = ext
+                .get::<Arc<OptionalSession<<Ctx as crate::better_auth::WithBetterAuth>::Schema>>>()
+            {
                 ctx.inject_session(Arc::clone(session));
             }
             ctx

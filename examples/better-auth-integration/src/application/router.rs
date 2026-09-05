@@ -1,6 +1,5 @@
-use axum::Router;
-
 use crate::infrastructure::context::AppState;
+use axum::Router;
 
 // Import handler modules so #[orpc] submissions are linked into the binary
 use super::handlers::{ping, planet, profile, stream};
@@ -16,5 +15,5 @@ pub fn build_router(state: AppState) -> Router {
         stream::stream_events,
     );
 
-    orpc::router(state)
+    orpc::router!(state)
 }

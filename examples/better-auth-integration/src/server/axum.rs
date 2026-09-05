@@ -11,14 +11,12 @@ pub async fn run_server(
     // Resolve auth router's state before nesting — matches axum-react pattern
     let auth_router = auth.clone().axum_router().with_state(auth);
 
-    // Build the orpc handler router and nest alongside auth
+    // Build the orpc handler router with state, then nest alongside auth
+    let rpc_router = crate::application::router::build_router(state.clone());
+
     let app = Router::new()
-        .nest(
-            "/rpc",
-            crate::application::router::build_router(state.clone()),
-        )
+        .nest("/rpc", rpc_router)
         .nest("/api/auth", auth_router)
-        .with_state(state)
         .layer(
             CorsLayer::new()
                 .allow_origin([

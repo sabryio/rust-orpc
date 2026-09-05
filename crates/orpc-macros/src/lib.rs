@@ -1,7 +1,7 @@
-//! Procedural macros for orpc — declarative router syntax.
+//! Procedural macros for orpc — handler registration and code generation.
 //!
-//! This crate provides the `r!` macro for defining routers with a clean,
-//! TypeScript-inspired object literal syntax.
+//! This crate provides macros for annotating handlers, deriving schemas,
+//! and building routers with auto-discovery.
 
 mod ast;
 mod error_derive;
@@ -9,153 +9,59 @@ mod generate;
 mod openapi_macro;
 mod orpc_macro;
 mod parse;
+mod router_macro;
 mod zod_ts;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Declarative router macro with nested object syntax.
+/// Auto-discovery router macro with optional module filtering.
 ///
-/// Transforms TypeScript-like router definitions into `RouterBuilder` method chains.
-/// This macro provides a clean, declarative syntax for defining RPC routers that
-/// mirrors the structure of TypeScript oRPC's plain object pattern.
+/// Discovers all `#[orpc]`-annotated handlers via the `inventory` crate and
+/// builds an Axum `Router`. Optionally filters handlers by module path pattern.
 ///
 /// # Syntax
 ///
 /// ```text
-/// router! {
-///     key: procedure_expression,
-///     key: {
-///         nested_key: procedure_expression,
-///         ...
-///     },
-///     ...
-/// }
+/// router!()                              // No state, all handlers
+/// router!(state)                         // With state, all handlers
+/// router!("pattern")                     // No state, filtered
+/// router!("pattern", state)              // Filtered + state (any order)
+/// router!(state, "pattern")              // Filtered + state (any order)
+/// router!(["pat1", "pat2"])              // Array of patterns
+/// router!("prefix::{a,b}")               // Brace expansion
+/// router!("prefix::*")                   // Wildcard
 /// ```
 ///
-/// - **Keys** can be identifiers (`ping`) or string literals (`"list-paginated"`)
-/// - **Values** are either procedure expressions or nested router blocks
-/// - **Trailing commas** are optional
+/// # Pattern Matching
 ///
-/// # Basic Example
+/// Patterns match module paths using prefix matching:
+/// - `"handlers::planet"` matches `handlers::planet` and `handlers::planet::*`
+/// - `"handlers::*"` wildcard matches all under `handlers::`
+/// - `"handlers::{planet,user}"` brace expansion to multiple patterns
+/// - `["handlers::planet", "api::v1"]` explicit array of patterns
+///
+/// # Examples
 ///
 /// ```rust,ignore
-/// use orpc_core::{router, os};
+/// // All handlers with shared state
+/// let app = router!(db);
 ///
-/// #[derive(Clone)]
-/// struct AppContext {
-///     greeting: String,
-/// }
+/// // Only planet handlers
+/// let app = router!("handlers::planet", db);
 ///
-/// let router = router! {
-///     ping: os()
-///         .context::<AppContext>()
-///         .output::<String>()
-///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
-/// };
+/// // Multiple modules with brace expansion
+/// let app = router!("handlers::{planet,user}", db);
+///
+/// // Compose with Axum nesting
+/// let app = Router::new()
+///     .nest("/planet", router!("handlers::planet", db.clone()))
+///     .nest("/user", router!("handlers::user", db));
 /// ```
-///
-/// # Nested Routers
-///
-/// ```rust,ignore
-/// let router = router! {
-///     ping: os()
-///         .context::<AppContext>()
-///         .output::<String>()
-///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
-///     
-///     planet: {
-///         list: os()
-///             .context::<AppContext>()
-///             .output::<Vec<Planet>>()
-///             .handler(|ctx, _: ()| async move { Ok(ctx.db.list().await) }),
-///         
-///         find: os()
-///             .context::<AppContext>()
-///             .input::<FindInput>()
-///             .output::<Planet>()
-///             .handler(|ctx, input| async move {
-///                 ctx.db.find(input.id).await
-///                     .ok_or_else(|| OrpcError::not_found("Not found"))
-///             })
-///     }
-/// };
-/// ```
-///
-/// The above expands to:
-///
-/// ```rust,ignore
-/// let router = r()
-///     .add("ping", os().context::<AppContext>()...)
-///     .nest("planet", r()
-///         .add("list", os().context::<AppContext>()...)
-///         .add("find", os().context::<AppContext>()...));
-/// ```
-///
-/// # String Literal Keys
-///
-/// Use string literals for keys with special characters:
-///
-/// ```rust,ignore
-/// router! {
-///     ping: os()...,
-///     "list-paginated": os()...,  // kebab-case
-///     "users:create": os()...,    // colons
-/// }
-/// ```
-///
-/// # Integration with Axum
-///
-/// ```rust,ignore
-/// use orpc_axum::AxumRouter;
-///
-/// let router = router! {
-///     ping: os()
-///         .context::<AppContext>()
-///         .output::<String>()
-///         .handler(|_ctx, _: ()| async { Ok("pong".to_string()) })
-/// };
-///
-/// let app = router.into_axum_router(AppContext { greeting: "Hello".to_string() });
-/// axum::serve(listener, app).await.unwrap();
-/// ```
-///
-/// # Comparison with Manual Builder
-///
-/// The macro is syntactic sugar over `RouterBuilder`. These are equivalent:
-///
-/// **Macro:**
-/// ```rust,ignore
-/// router! {
-///     ping: os()...,
-///     planet: { list: os()... }
-/// }
-/// ```
-///
-/// **Manual:**
-/// ```rust,ignore
-/// r()
-///     .add("ping", os()...)
-///     .nest("planet", r().add("list", os()...))
-/// ```
-///
-/// Use the macro for cleaner syntax, or the manual builder when you need
-/// programmatic router construction.
-///
-/// # Generated Code
-///
-/// The macro generates a `RouterBuilder` that implements the `Router` trait.
-/// All procedures are automatically registered with their full paths during
-/// router composition.
-///
-/// Nested routers create hierarchical paths:
-/// - `ping` → registered as `"ping"`
-/// - `planet: { list: ... }` → registered as `"planet/list"`
-/// - `api: { v1: { users: ... } }` → registered as `"api/v1/users"`
 #[proc_macro]
 pub fn router(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as ast::RouterMacroInput);
-    generate::generate(&input).into()
+    let args = parse_macro_input!(input as router_macro::RouterMacroArgs);
+    router_macro::expand_router(args).into()
 }
 
 /// TypeScript-like OpenAPI metadata macro.

@@ -15,7 +15,7 @@
 //!     .with_state(db);
 //!
 //! // After (auto-discovered)
-//! let app = orpc::router().with_state(db);
+//! let app = router!(db);
 //! ```
 //!
 //! And TypeScript contract is generated automatically:
@@ -48,7 +48,30 @@ async fn main() {
     let db = Db::new();
 
     // ✨ Auto-built Axum router — no manual .route() calls needed
-    let router = orpc::router(db);
+    let router = orpc::router!(db);
+
+    // 🎯 Pattern filtering examples (commented out):
+    //
+    // Filter by single module:
+    // let router = router!("handlers::planet", db);
+    //
+    // Multiple modules with brace expansion:
+    // let router = router!("handlers::{planet,user}", db);
+    //
+    // Wildcard matching:
+    // let router = router!("handlers::*", db);
+    //
+    // Array of patterns:
+    // let router = router!(["handlers::planet", "handlers::user"], db);
+    //
+    // Compose filtered routers:
+    // let app = Router::new()
+    //     .nest("/planet", router!("handlers::planet", db.clone()))
+    //     .nest("/user", router!("handlers::user", db));
+    //
+    // No state (for handlers that don't use State<T>):
+    // let router = router!();
+    // let router = router!("handlers::public");
 
     // Compose with Axum's native .nest()
     let app = Router::new().nest("/api/v1", router);

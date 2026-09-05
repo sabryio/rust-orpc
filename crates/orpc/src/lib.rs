@@ -42,7 +42,6 @@ pub mod schema_registry;
 pub use error_registry::{ErrorRegistration, ErrorVariant};
 pub use metadata::HandlerMetadata;
 pub use registration::HandlerRegistration;
-pub use router::router;
 pub use schema_registry::SchemaRegistration;
 
 // Re-export inventory so users don't need to depend on it directly
@@ -54,8 +53,9 @@ pub use orpc_macros::{OrpcErrors, ZodTs};
 pub use orpc_axum::AxumRouter;
 pub use orpc_core::*;
 
-// Re-export the #[orpc] macro
+// Re-export the #[orpc] attribute macro and router! proc macro
 pub use orpc_macros::orpc;
+pub use orpc_macros::router;
 
 use orpc_codegen::ContractBuilder;
 

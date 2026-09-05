@@ -47,6 +47,7 @@
 
 mod builder;
 mod error;
+mod middleware;
 mod openapi;
 mod procedure;
 mod registry;
@@ -58,6 +59,7 @@ mod streaming;
 // Re-export public API
 pub use builder::{os, ProcedureBuilder, Routed, Unrouted};
 pub use error::{IntoOrpcError, OrpcError};
+pub use middleware::{IntoMiddleware, Middleware, Next};
 pub use openapi::{openapi_builder, OpenApiMeta, OpenApiMetaBuilder};
 pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;

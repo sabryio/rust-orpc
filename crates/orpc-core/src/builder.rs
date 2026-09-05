@@ -3,21 +3,26 @@
 //! Uses phantom types to enforce correct state transitions:
 //!
 //! ```text
-//! os()                                    → ProcedureBuilder<(), (), (), Unrouted>
-//!   .context::<Ctx>()                     → ProcedureBuilder<Ctx, (), (), Unrouted>
-//!   .route(HttpMethod::Get, "/ping")      → ProcedureBuilder<Ctx, (), (), Routed>
-//!   .output::<String>()                   → ProcedureBuilder<Ctx, (), String, Routed>
+//! os()                                    → ProcedureBuilder<(), (), (), (), Unrouted>
+//!   .context::<Ctx>()                     → ProcedureBuilder<Ctx, Ctx, (), (), Unrouted>
+//!   .route(HttpMethod::Get, "/ping")      → ProcedureBuilder<Ctx, Ctx, (), (), Routed>
+//!   .output::<String>()                   → ProcedureBuilder<Ctx, Ctx, (), String, Routed>
 //!   .handler(|ctx, _: ()| async { ... })  → Procedure<Ctx, (), String>
 //! ```
 //!
 //! `.handler()` is only available when the builder is in `Routed` state.
 //! This enforces that every procedure declares a route at compile time.
+//!
+//! The `HCtx` type parameter tracks the handler context type, which may differ
+//! from `Ctx` when middleware is used. When no middleware is present, `HCtx = Ctx`.
 
+use crate::middleware::MiddlewareStackFn;
 use crate::openapi::OpenApiMeta;
 use crate::route::{HttpMethod, RouteMetadata};
 use crate::{OrpcError, Procedure};
 use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -37,51 +42,62 @@ pub struct Routed;
 /// Type-safe builder for constructing RPC procedures.
 ///
 /// The `R` phantom type parameter enforces the route declaration requirement:
-/// - `ProcedureBuilder<Ctx, In, Out, Unrouted>` — `.handler()` not available
-/// - `ProcedureBuilder<Ctx, In, Out, Routed>`   — `.handler()` available
+/// - `ProcedureBuilder<Ctx, HCtx, In, Out, Unrouted>` — `.handler()` not available
+/// - `ProcedureBuilder<Ctx, HCtx, In, Out, Routed>`   — `.handler()` available
+///
+/// The `HCtx` parameter tracks the handler context type. When no middleware is used,
+/// `HCtx = Ctx`. Middleware can transform the context from `Ctx` to a different `HCtx`.
 ///
 /// # DIP: Depends on OrpcError abstraction, not concrete error types
-pub struct ProcedureBuilder<Ctx, In, Out, R> {
+pub struct ProcedureBuilder<Ctx, HCtx, In, Out, R> {
     route: Option<RouteMetadata>,
     openapi_meta: OpenApiMeta,
-    _phantom: PhantomData<(Ctx, In, Out, R)>,
+    middleware_stack: Option<MiddlewareStackFn<Ctx, HCtx>>,
+    _phantom: PhantomData<(Ctx, HCtx, In, Out, R)>,
 }
 
-impl ProcedureBuilder<(), (), (), Unrouted> {
+impl ProcedureBuilder<(), (), (), (), Unrouted> {
     pub(crate) fn new() -> Self {
         Self {
             route: None,
             openapi_meta: OpenApiMeta::default(),
+            middleware_stack: None,
             _phantom: PhantomData,
         }
     }
 }
 
 // context/input/output transitions — available in both Unrouted and Routed states
-impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
+impl<Ctx, HCtx, In, Out, R> ProcedureBuilder<Ctx, HCtx, In, Out, R> {
     /// Sets the context type for this procedure.
-    pub fn context<C>(self) -> ProcedureBuilder<C, In, Out, R> {
+    ///
+    /// When setting a new context type, `HCtx` is reset to match `C` (no middleware).
+    /// If you had middleware before calling `.context()`, you'll need to re-apply it.
+    pub fn context<C>(self) -> ProcedureBuilder<C, C, In, Out, R> {
         ProcedureBuilder {
             route: self.route,
             openapi_meta: self.openapi_meta,
+            middleware_stack: None, // Reset middleware when context changes
             _phantom: PhantomData,
         }
     }
 
     /// Sets the input type for this procedure.
-    pub fn input<I>(self) -> ProcedureBuilder<Ctx, I, Out, R> {
+    pub fn input<I>(self) -> ProcedureBuilder<Ctx, HCtx, I, Out, R> {
         ProcedureBuilder {
             route: self.route,
             openapi_meta: self.openapi_meta,
+            middleware_stack: self.middleware_stack,
             _phantom: PhantomData,
         }
     }
 
     /// Sets the output type for this procedure.
-    pub fn output<O>(self) -> ProcedureBuilder<Ctx, In, O, R> {
+    pub fn output<O>(self) -> ProcedureBuilder<Ctx, HCtx, In, O, R> {
         ProcedureBuilder {
             route: self.route,
             openapi_meta: self.openapi_meta,
+            middleware_stack: self.middleware_stack,
             _phantom: PhantomData,
         }
     }
@@ -116,7 +132,7 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
         mut self,
         method: HttpMethod,
         path: impl Into<String>,
-    ) -> ProcedureBuilder<Ctx, In, Out, Routed> {
+    ) -> ProcedureBuilder<Ctx, HCtx, In, Out, Routed> {
         let path_string = path.into();
 
         // Create OpenAPI metadata with method and path
@@ -132,6 +148,7 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
         ProcedureBuilder {
             route: Some(RouteMetadata::new(method, path_string)),
             openapi_meta: self.openapi_meta,
+            middleware_stack: self.middleware_stack,
             _phantom: PhantomData,
         }
     }
@@ -161,7 +178,7 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
     ///     .output::<Vec<Planet>>()
     ///     .handler(|ctx, _: ()| async { Ok(ctx.db.list().await) });
     /// ```
-    pub fn meta(mut self, meta: OpenApiMeta) -> ProcedureBuilder<Ctx, In, Out, Routed>
+    pub fn meta(mut self, meta: OpenApiMeta) -> ProcedureBuilder<Ctx, HCtx, In, Out, Routed>
     where
         Self: Sized,
     {
@@ -176,6 +193,7 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
             ProcedureBuilder {
                 route: Some(RouteMetadata::new(method, path)),
                 openapi_meta: self.openapi_meta,
+                middleware_stack: self.middleware_stack,
                 _phantom: PhantomData,
             }
         } else {
@@ -185,6 +203,7 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
             ProcedureBuilder {
                 route: self.route,
                 openapi_meta: self.openapi_meta,
+                middleware_stack: self.middleware_stack,
                 _phantom: PhantomData,
             }
         }
@@ -192,15 +211,19 @@ impl<Ctx, In, Out, R> ProcedureBuilder<Ctx, In, Out, R> {
 }
 
 // handler — only available in Routed state
-impl<Ctx, In, Out> ProcedureBuilder<Ctx, In, Out, Routed>
+impl<Ctx, HCtx, In, Out> ProcedureBuilder<Ctx, HCtx, In, Out, Routed>
 where
     Ctx: Clone + Send + 'static,
+    HCtx: Send + 'static,
     In: serde::de::DeserializeOwned + Send + 'static,
     Out: serde::Serialize + Send + 'static,
 {
     /// Defines the handler for a procedure.
     ///
     /// Only available after `.route()` has been called.
+    ///
+    /// The handler receives the context type `HCtx`, which may differ from `Ctx`
+    /// if middleware has been applied via `.use_middleware()`.
     ///
     /// # Examples
     ///
@@ -242,28 +265,59 @@ where
     /// ```
     pub fn handler<F, Fut>(self, handler: F) -> Procedure<Ctx, In, Out>
     where
-        F: Fn(Ctx, In) -> Fut + Send + Sync + 'static,
+        F: Fn(HCtx, In) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Out, OrpcError>> + Send + 'static,
     {
         // SAFETY: route is always Some when in Routed state — the type system
         // guarantees .route() was called before .handler().
         let route = self.route.expect("route is always set in Routed state");
 
-        Procedure::new(
+        let handler = Arc::new(handler);
+
+        // Compose middleware into the handler closure
+        let wrapped_handler: Arc<
+            dyn Fn(Ctx, In) -> Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
+                + Send
+                + Sync,
+        > = if let Some(middleware_stack) = self.middleware_stack {
+            // Middleware present: compose the stack with the handler
             Arc::new(move |ctx, input| {
-                let fut = handler(ctx, input);
-                Box::pin(fut)
-            }),
-            route,
-            self.openapi_meta,
-        )
+                let handler = Arc::clone(&handler);
+                let middleware_stack = Arc::clone(&middleware_stack);
+                Box::pin(async move {
+                    let hctx = middleware_stack(ctx).await?;
+                    handler(hctx, input).await
+                }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
+            })
+        } else {
+            // No middleware: call handler directly
+            // SAFETY: When middleware_stack is None, HCtx = Ctx (guaranteed by ProcedureBuilder::new)
+            // We use transmute_copy which is safe because:
+            // 1. The size and alignment of Ctx and HCtx are identical (they're the same type)
+            // 2. We immediately forget the original to prevent double-drop
+            Arc::new(move |ctx, input| {
+                let handler = Arc::clone(&handler);
+                Box::pin(async move {
+                    // SAFETY: HCtx = Ctx when no middleware
+                    let hctx: HCtx = unsafe {
+                        let ctx_ptr = &ctx as *const Ctx as *const HCtx;
+                        std::ptr::read(ctx_ptr)
+                    };
+                    std::mem::forget(ctx);
+                    handler(hctx, input).await
+                }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
+            })
+        };
+
+        Procedure::new(wrapped_handler, route, self.openapi_meta)
     }
 }
 
 // streaming handler — for Stream<Item = T> output types
-impl<Ctx, In, T> ProcedureBuilder<Ctx, In, crate::AsyncIterator<T>, Routed>
+impl<Ctx, HCtx, In, T> ProcedureBuilder<Ctx, HCtx, In, crate::AsyncIterator<T>, Routed>
 where
     Ctx: Clone + Send + 'static,
+    HCtx: Send + 'static,
     In: serde::de::DeserializeOwned + Send + 'static,
     T: serde::Serialize + Send + 'static,
 {
@@ -295,26 +349,171 @@ where
     /// ```
     pub fn handler<F, Fut, S>(self, handler: F) -> crate::StreamingProcedure<Ctx, In, T>
     where
-        F: Fn(Ctx, In) -> Fut + Send + Sync + 'static,
+        F: Fn(HCtx, In) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<S, OrpcError>> + Send + 'static,
         S: futures_core::Stream<Item = T> + Send + 'static,
     {
         let route = self.route.expect("route is always set in Routed state");
 
-        crate::StreamingProcedure::new(
-            Arc::new(move |ctx, input| {
-                let fut = handler(ctx, input);
-                Box::pin(async move {
-                    let stream = fut.await?;
-                    Ok(Box::pin(stream)
-                        as std::pin::Pin<
-                            Box<dyn futures_core::Stream<Item = T> + Send>,
-                        >)
+        let handler = Arc::new(handler);
+
+        type StreamFuture<T> = std::pin::Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            std::pin::Pin<Box<dyn futures_core::Stream<Item = T> + Send>>,
+                            OrpcError,
+                        >,
+                    > + Send,
+            >,
+        >;
+
+        let wrapped_handler: Arc<dyn Fn(Ctx, In) -> StreamFuture<T> + Send + Sync> =
+            if let Some(middleware_stack) = self.middleware_stack {
+                // Middleware present
+                Arc::new(move |ctx, input| {
+                    let handler = Arc::clone(&handler);
+                    let middleware_stack = Arc::clone(&middleware_stack);
+                    Box::pin(async move {
+                        let hctx = middleware_stack(ctx).await?;
+                        let stream = handler(hctx, input).await?;
+                        Ok(Box::pin(stream)
+                            as std::pin::Pin<
+                                Box<dyn futures_core::Stream<Item = T> + Send>,
+                            >)
+                    }) as StreamFuture<T>
                 })
-            }),
-            route,
-            self.openapi_meta,
-        )
+            } else {
+                // No middleware: HCtx = Ctx
+                Arc::new(move |ctx, input| {
+                    let handler = Arc::clone(&handler);
+                    Box::pin(async move {
+                        // SAFETY: HCtx = Ctx when no middleware
+                        let hctx: HCtx = unsafe {
+                            let ctx_ptr = &ctx as *const Ctx as *const HCtx;
+                            std::ptr::read(ctx_ptr)
+                        };
+                        std::mem::forget(ctx);
+                        let stream = handler(hctx, input).await?;
+                        Ok(Box::pin(stream)
+                            as std::pin::Pin<
+                                Box<dyn futures_core::Stream<Item = T> + Send>,
+                            >)
+                    }) as StreamFuture<T>
+                })
+            };
+
+        crate::StreamingProcedure::new(wrapped_handler, route, self.openapi_meta)
+    }
+}
+
+// Middleware support — available in both Unrouted and Routed states
+impl<Ctx, HCtx, In, Out, R> ProcedureBuilder<Ctx, HCtx, In, Out, R>
+where
+    Ctx: Clone + Send + 'static,
+    HCtx: Clone + Send + 'static,
+{
+    /// Apply middleware that transforms the context.
+    ///
+    /// Middleware receives the current context and a `Next` continuation,
+    /// and must return a transformed context or an error.
+    ///
+    /// Multiple middleware calls chain together: `Ctx → A → B → C`,
+    /// where the handler receives the final context type `C`.
+    ///
+    /// # Examples
+    ///
+    /// Bare async function:
+    /// ```rust,ignore
+    /// async fn require_auth(ctx: BaseContext, next: Next<AuthContext>) -> Result<AuthContext, OrpcError> {
+    ///     let user = get_user(&ctx.db).await?;
+    ///     next.run(AuthContext { db: ctx.db, user }).await
+    /// }
+    ///
+    /// let proc = os()
+    ///     .context::<BaseContext>()
+    ///     .use_middleware(require_auth)
+    ///     .route(HttpMethod::Get, "/profile")
+    ///     .output::<UserProfile>()
+    ///     .handler(|ctx: AuthContext, _: ()| async move {
+    ///         // ctx.user is guaranteed to be present
+    ///         Ok(UserProfile { name: ctx.user.name })
+    ///     });
+    /// ```
+    ///
+    /// Closure:
+    /// ```rust,ignore
+    /// let proc = os()
+    ///     .context::<BaseContext>()
+    ///     .use_middleware(|ctx, next| async move {
+    ///         println!("Before handler");
+    ///         let result = next.run(ctx).await;
+    ///         println!("After handler");
+    ///         result
+    ///     })
+    ///     .route(HttpMethod::Get, "/ping")
+    ///     .output::<String>()
+    ///     .handler(|ctx, _: ()| async { Ok("pong".to_string()) });
+    /// ```
+    pub fn use_middleware<M, NewCtx>(
+        self,
+        middleware: M,
+    ) -> ProcedureBuilder<Ctx, NewCtx, In, Out, R>
+    where
+        M: crate::IntoMiddleware<HCtx, NewCtx>,
+        NewCtx: Clone + Send + 'static,
+    {
+        use crate::middleware::Next;
+
+        let mw = middleware.into_middleware();
+        let mw_func = mw.func().clone();
+
+        let new_stack: crate::middleware::MiddlewareStackFn<Ctx, NewCtx> =
+            if let Some(existing_stack) = self.middleware_stack {
+                // Compose: existing_stack (Ctx → HCtx), then new middleware (HCtx → NewCtx)
+                Arc::new(move |ctx| {
+                    let existing_stack = Arc::clone(&existing_stack);
+                    let mw_func = Arc::clone(&mw_func);
+                    Box::pin(async move {
+                        // First, run the existing stack to get HCtx
+                        let hctx = existing_stack(ctx).await?;
+
+                        // Now call new middleware with HCtx
+                        // The Next represents "identity" - just return whatever NewCtx the middleware produces
+                        let next = Next::new(move |new_ctx: NewCtx| {
+                            // The rest of the chain is empty, so just return the context
+                            Box::pin(async move { Ok(new_ctx) })
+                        });
+                        mw_func(hctx, next).await
+                    })
+                })
+            } else {
+                // First middleware: HCtx = Ctx, so the middleware transforms Ctx → NewCtx
+                // SAFETY: When middleware_stack is None, HCtx = Ctx
+                Arc::new(move |ctx| {
+                    let mw_func = Arc::clone(&mw_func);
+                    Box::pin(async move {
+                        // Transmute ctx to HCtx (they're the same type when no middleware exists)
+                        let hctx: HCtx = unsafe {
+                            let ctx_ptr = &ctx as *const Ctx as *const HCtx;
+                            std::ptr::read(ctx_ptr)
+                        };
+                        std::mem::forget(ctx);
+
+                        // Create a Next that represents "identity" - just return the context unchanged
+                        let next =
+                            Next::new(move |new_ctx: NewCtx| Box::pin(async move { Ok(new_ctx) }));
+                        mw_func(hctx, next).await
+                    })
+                })
+            };
+
+        ProcedureBuilder {
+            route: self.route,
+            openapi_meta: self.openapi_meta,
+            middleware_stack: Some(new_stack),
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -334,7 +533,7 @@ where
 ///     .output::<String>()
 ///     .handler(|_ctx: Ctx, _: ()| async { Ok("pong".to_string()) });
 /// ```
-pub fn os() -> ProcedureBuilder<(), (), (), Unrouted> {
+pub fn os() -> ProcedureBuilder<(), (), (), (), Unrouted> {
     ProcedureBuilder::new()
 }
 

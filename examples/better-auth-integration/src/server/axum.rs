@@ -1,20 +1,13 @@
-use crate::{
-    domain::models::auth::AuthenticatedUser,
-    infrastructure::{
-        auth::{
-            middleware::{build_context, session_layer, BaseContext},
-            schema::AppAuthSchema,
-        },
-        repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
-    },
+use crate::infrastructure::{
+    auth::{middleware::BaseContext, schema::AppAuthSchema},
+    repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
 };
-use axum::{middleware, Router};
-use better_auth::BetterAuth;
+use axum::Router;
+use better_auth::{integrations::axum::OptionalSession, BetterAuth};
+use orpc_axum::better_auth::BetterAuthExt;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-/// Assembles the final Axum application, applying CORS, session layers, and routing.
-/// SRP: Sole responsibility is HTTP server configuration and composition.
 pub async fn run_server(
     orpc_router: impl orpc_axum::AxumRouter<BaseContext>,
     auth_router: Router<Arc<BetterAuth<AppAuthSchema>>>,
@@ -22,27 +15,17 @@ pub async fn run_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let base_ctx = BaseContext {
         planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
-        session: Arc::new(AuthenticatedUser::new(
-            better_auth::integrations::axum::OptionalSession(None),
-        )),
+        session: Arc::new(OptionalSession(None)),
     };
 
-    let orpc_axum_router = orpc_router.into_axum_router_with(base_ctx, build_context);
-
-    // Wrap the orpc router with the session extraction layer so that
-    // every request has a chance to have its user populated.
-    let orpc_with_session =
-        orpc_axum_router.layer(middleware::from_fn_with_state(auth.clone(), session_layer));
-
-    // Nest the auth router under /api/auth, then merge with main router
-    // auth_router already has BetterAuth state, so we nest it into itself
-    let auth_nested = Router::new()
-        .nest("/api/auth", auth_router)
-        .with_state(auth.clone());
+    // ✨ Dream API: schema inferred from BaseContext impl, no turbofish needed
+    let orpc_with_auth = orpc_router
+        .into_axum_router_with_better_auth(base_ctx)
+        .with_better_auth(auth.clone());
 
     let app = Router::new()
-        .nest("/rpc", orpc_with_session)
-        .merge(auth_nested)
+        .nest("/rpc", orpc_with_auth)
+        .nest("/api/auth", auth_router.with_state(auth))
         .layer(
             CorsLayer::new()
                 .allow_origin([

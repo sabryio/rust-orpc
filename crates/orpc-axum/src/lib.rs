@@ -3,6 +3,10 @@
 //! Axum integration for `orpc-core` — converts type-safe RPC procedure routers
 //! into Axum routers using each procedure's declared route metadata.
 //!
+//! ## Features
+//!
+//! - `better-auth` - Better-Auth integration via `.with_better_auth()` extension method
+//!
 //! ## Basic usage
 //!
 //! ```rust,no_run
@@ -70,6 +74,21 @@
 //!     axum::serve(listener, app).await.unwrap();
 //! }
 //! ```
+//!
+//! ## Better-Auth integration
+//!
+//! Enable the `better-auth` feature and use `.with_better_auth()`:
+//!
+//! ```rust,ignore
+//! use orpc_axum::{AxumRouter, better_auth::BetterAuthExt};
+//!
+//! let app = orpc_router
+//!     .into_axum_router_with(base_ctx, build_context)
+//!     .with_better_auth(auth);
+//! ```
+
+#[cfg(feature = "better-auth")]
+pub mod better_auth;
 
 use axum::{
     extract::State,
@@ -96,8 +115,6 @@ where
     ///
     /// Each procedure is registered at the HTTP method and absolute path
     /// declared via `.route()` on the procedure builder.
-    ///
-    /// CORS is enabled for all origins by default.
     fn into_axum_router(self, ctx: Ctx) -> AxumRouterType
     where
         Self: Sized,
@@ -110,8 +127,7 @@ where
     ///
     /// The `extractor` function is called on every request with a clone of
     /// the base context and the request's [`axum::http::Extensions`]. It
-    /// returns a new context enriched with per-request data (e.g. an
-    /// authenticated user placed there by middleware).
+    /// returns a new context enriched with per-request data.
     ///
     /// # Example
     ///
@@ -138,6 +154,41 @@ where
         F: Fn(Ctx, &axum::http::Extensions) -> Ctx + Clone + Send + Sync + 'static,
     {
         build_axum_router(self, ctx, extractor)
+    }
+
+    /// Converts this orpc router into an Axum router with automatic Better-Auth
+    /// session injection.
+    ///
+    /// Requires your context to implement `WithBetterAuth`. The schema type is
+    /// inferred — no turbofish needed.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use orpc_axum::{AxumRouter, better_auth::BetterAuthExt};
+    ///
+    /// let app = orpc_router
+    ///     .into_axum_router_with_better_auth(base_ctx) // Schema inferred!
+    ///     .with_better_auth(auth);
+    /// ```
+    #[cfg(feature = "better-auth")]
+    fn into_axum_router_with_better_auth(self, ctx: Ctx) -> AxumRouterType
+    where
+        Self: Sized,
+        Ctx: crate::better_auth::WithBetterAuth,
+    {
+        build_axum_router(self, ctx, |mut ctx, ext| {
+            use ::better_auth::integrations::axum::OptionalSession;
+
+            if let Some(session) = ext.get::<Arc<
+                OptionalSession<
+                    <Ctx as crate::better_auth::WithBetterAuth>::Schema,
+                >,
+            >>() {
+                ctx.inject_session(Arc::clone(session));
+            }
+            ctx
+        })
     }
 }
 
@@ -269,7 +320,6 @@ fn stream_to_sse(
 #[derive(Debug)]
 enum AxumError {
     Orpc(OrpcError),
-    Internal(String),
 }
 
 impl From<OrpcError> for AxumError {
@@ -293,14 +343,6 @@ impl IntoResponse for AxumError {
                 });
 
                 (status, Json(body)).into_response()
-            }
-            AxumError::Internal(msg) => {
-                let body = serde_json::json!({
-                    "code": "INTERNAL_ERROR",
-                    "message": msg,
-                });
-
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
             }
         }
     }

@@ -1,14 +1,12 @@
 //! Better Auth + orpc Integration Example
 //!
-//! Demonstrates how to integrate Better Auth RS authentication with orpc procedures.
+//! Demonstrates how to integrate Better Auth RS authentication with orpc procedures
+//! using orpc's native `.use_middleware()` for authentication — no Axum middleware
+//! layer needed for auth logic.
 //!
-//! This example shows:
-//! - Setting up Better Auth with email/password authentication
-//! - Using Axum middleware to extract sessions
-//! - Passing authenticated user through orpc context
-//! - Protecting routes with authentication checks
-//! - Accessing user information in orpc handlers
-//! - **NEW**: Using the `openapi!` macro for TypeScript-like metadata syntax
+//! Context flow:
+//!   BaseContext (every request)
+//!     └─ .use_middleware(require_auth) ──► AuthContext (authenticated requests only)
 
 mod auth_schema;
 
@@ -27,7 +25,7 @@ use better_auth::{
     AuthConfig, BetterAuth,
 };
 use orpc_axum::AxumRouter;
-use orpc_core::{openapi, os, router, HttpMethod, OrpcError, Stream};
+use orpc_core::{openapi, os, router, HttpMethod, Next as OrpcNext, OrpcError, Stream};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tokio_stream::StreamExt;
@@ -72,19 +70,8 @@ struct StreamEvent {
     count: u32,
 }
 
-// ===== Application Context =====
+// ===== Simplified user info =====
 
-/// Application context that includes optional authenticated user
-#[derive(Clone)]
-struct AppContext {
-    #[allow(dead_code)]
-    db: Arc<DatabaseConnection>,
-    planets: Arc<tokio::sync::RwLock<Vec<Planet>>>,
-    // Optional - only present for authenticated requests
-    current_user: Option<AuthenticatedUser>,
-}
-
-/// Simplified user info extracted from Better Auth session
 #[derive(Clone, Debug)]
 struct AuthenticatedUser {
     id: String,
@@ -92,7 +79,19 @@ struct AuthenticatedUser {
     name: Option<String>,
 }
 
-impl AppContext {
+// ===== Contexts =====
+
+/// Base context available on every request — no user required.
+#[derive(Clone)]
+struct BaseContext {
+    #[allow(dead_code)]
+    db: Arc<DatabaseConnection>,
+    planets: Arc<tokio::sync::RwLock<Vec<Planet>>>,
+    /// Populated by the Axum session-extraction layer.
+    current_user: Option<AuthenticatedUser>,
+}
+
+impl BaseContext {
     fn new(db: Arc<DatabaseConnection>) -> Self {
         Self {
             db,
@@ -100,18 +99,38 @@ impl AppContext {
             current_user: None,
         }
     }
+}
 
+/// Authenticated context — only reachable after `require_auth` middleware succeeds.
+#[derive(Clone)]
+struct AuthContext {
     #[allow(dead_code)]
-    fn with_user(mut self, user: AuthenticatedUser) -> Self {
-        self.current_user = Some(user);
-        self
-    }
+    db: Arc<DatabaseConnection>,
+    planets: Arc<tokio::sync::RwLock<Vec<Planet>>>,
+    user: AuthenticatedUser,
+}
 
-    fn require_auth(&self) -> Result<&AuthenticatedUser, OrpcError> {
-        self.current_user
-            .as_ref()
-            .ok_or_else(|| OrpcError::unauthorized("Authentication required"))
-    }
+// ===== orpc Middleware =====
+
+/// Middleware that enforces authentication and upgrades BaseContext → AuthContext.
+///
+/// Handlers that receive `AuthContext` are guaranteed to have a logged-in user.
+async fn require_auth(
+    ctx: BaseContext,
+    next: OrpcNext<AuthContext>,
+) -> Result<AuthContext, OrpcError> {
+    let user = ctx
+        .current_user
+        .clone()
+        .ok_or_else(|| OrpcError::unauthorized("Authentication required"))?;
+
+    let auth_ctx = AuthContext {
+        db: Arc::clone(&ctx.db),
+        planets: Arc::clone(&ctx.planets),
+        user,
+    };
+
+    next.run(auth_ctx).await
 }
 
 // ===== Sample data =====
@@ -166,28 +185,17 @@ fn sample_planets() -> Vec<Planet> {
     ]
 }
 
-// ===== Context Extractor =====
+// ===== Axum session layer =====
+//
+// This thin Axum middleware only does one thing: extract the Better Auth session
+// and store it in Axum request extensions.  All auth *enforcement* is done by
+// the orpc `require_auth` middleware above.
 
-/// Extract authenticated user and create context with it
-/// This is called by orpc-axum for each request
-fn extract_context(base_ctx: AppContext, extensions: &axum::http::Extensions) -> AppContext {
-    // Check if auth middleware added a user to extensions
-    if let Some(user) = extensions.get::<AuthenticatedUser>() {
-        base_ctx.with_user(user.clone())
-    } else {
-        base_ctx
-    }
-}
-
-// ===== Middleware =====
-
-/// Middleware that extracts Better Auth session and adds it to extensions
-async fn auth_middleware(
+async fn session_layer(
     session: OptionalSession<AppAuthSchema>,
     mut req: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    // Store user info in extensions if session exists
     if let Some(session_data) = session.0 {
         let user = AuthenticatedUser {
             id: session_data.user.id().to_string(),
@@ -196,8 +204,14 @@ async fn auth_middleware(
         };
         req.extensions_mut().insert(user);
     }
-
     next.run(req).await
+}
+
+/// Per-request context builder: pulls the user from extensions (if present)
+/// and sets it on BaseContext so the orpc middleware can inspect it.
+fn build_context(mut ctx: BaseContext, ext: &axum::http::Extensions) -> BaseContext {
+    ctx.current_user = ext.get::<AuthenticatedUser>().cloned();
+    ctx
 }
 
 // ===== Main =====
@@ -206,12 +220,10 @@ async fn auth_middleware(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Better Auth + orpc integration example...");
 
-    // Setup database
     let database_url = "sqlite::memory:";
     let database = Database::connect(database_url).await?;
     auth_schema::run_app_migrations(&database).await?;
 
-    // Setup Better Auth
     let secret = "your-very-secure-secret-key-at-least-32-chars-long-for-production-use-only";
     let config = AuthConfig::new(secret)
         .base_url("http://localhost:3000")
@@ -228,48 +240,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?,
     );
 
-    // Setup application context (without user - will be added per-request)
-    let base_ctx = AppContext::new(Arc::new(database));
+    let base_ctx = BaseContext::new(Arc::new(database));
 
-    // Build orpc router with new openapi! macro syntax
+    // ── orpc router ──────────────────────────────────────────────────────────
+    //
+    // Public procedures use BaseContext directly.
+    // Protected procedures call .use_middleware(require_auth) which upgrades
+    // the context to AuthContext — the handler receives AuthContext and is
+    // guaranteed to have `ctx.user`.
+
     let orpc_router = router! {
-        // Public route - using openapi! macro for metadata
         ping: os()
-            .context::<AppContext>()
-            .meta(openapi!{
-                method: "POST",
-                path: "/ping"
-            })
+            .context::<BaseContext>()
+            .meta(openapi!{ method: "POST", path: "/ping" })
             .output::<String>()
-            .handler(|ctx, _: ()| async move {
-                if let Some(user) = &ctx.current_user {
-                    Ok(format!("pong (authenticated as {})", user.email.as_deref().unwrap_or("unknown")))
-                } else {
-                    Ok("pong (anonymous)".to_string())
+            .handler(|ctx: BaseContext, _: ()| async move {
+                match &ctx.current_user {
+                    Some(u) => Ok(format!(
+                        "pong (authenticated as {})",
+                        u.email.as_deref().unwrap_or("unknown")
+                    )),
+                    None => Ok("pong (anonymous)".to_string()),
                 }
             }),
 
         planet: {
-            // List all planets - demonstrating openapi! with GET method
             list: os()
-                .context::<AppContext>()
-                .meta(openapi!{
-                    method: "POST",
-                    path: "/planet/list"
-                })
+                .context::<BaseContext>()
+                .meta(openapi!{ method: "POST", path: "/planet/list" })
                 .output::<Vec<Planet>>()
-                .handler(|ctx, _: ()| async move {
-                    let planets = ctx.planets.read().await;
-                    Ok(planets.clone())
+                .handler(|ctx: BaseContext, _: ()| async move {
+                    Ok(ctx.planets.read().await.clone())
                 }),
 
-            // Paginated planet list - mixing old .route() with new openapi!
             listPaginated: os()
-                .context::<AppContext>()
+                .context::<BaseContext>()
                 .route(HttpMethod::Post, "/planet/list-paginated")
                 .input::<ListPlanetsPaginatedInput>()
                 .output::<ListPlanetsPaginatedOutput>()
-                .handler(|ctx, input: ListPlanetsPaginatedInput| async move {
+                .handler(|ctx: BaseContext, input: ListPlanetsPaginatedInput| async move {
                     let planets = ctx.planets.read().await;
                     let offset = input.offset.unwrap_or(0);
                     let items: Vec<Planet> = planets
@@ -278,140 +287,109 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .take(input.limit)
                         .cloned()
                         .collect();
-
                     let next_page_param = if offset + input.limit < planets.len() {
                         Some(offset + input.limit)
                     } else {
                         None
                     };
-
                     Ok(ListPlanetsPaginatedOutput { items, next_page_param })
                 }),
 
-            // Find planet by ID - using openapi! for cleaner syntax
             find: os()
-                .context::<AppContext>()
-                .meta(openapi!{
-                    method: "POST",
-                    path: "/planet/find"
-                })
+                .context::<BaseContext>()
+                .meta(openapi!{ method: "POST", path: "/planet/find" })
                 .input::<FindPlanetInput>()
                 .output::<Planet>()
-                .handler(|ctx, input: FindPlanetInput| async move {
-                    let planets = ctx.planets.read().await;
-                    planets
+                .handler(|ctx: BaseContext, input: FindPlanetInput| async move {
+                    ctx.planets
+                        .read()
+                        .await
                         .iter()
                         .find(|p| p.id == input.id)
                         .cloned()
-                        .ok_or_else(|| OrpcError::not_found(format!("Planet with id {} not found", input.id)))
+                        .ok_or_else(|| OrpcError::not_found(format!("Planet {} not found", input.id)))
                 }),
 
-            // Create a new planet (requires auth) - demonstrating prefix with openapi!
+            // Protected: requires authentication via orpc middleware
             create: os()
-                .context::<AppContext>()
+                .context::<BaseContext>()
+                .use_middleware(require_auth)
                 .route(HttpMethod::Post, "/planet/create")
                 .input::<CreatePlanetInput>()
                 .output::<Planet>()
-                .handler(|ctx, input: CreatePlanetInput| async move {
-                    // Require authentication for creating planets
-                    let _user = ctx.require_auth()?;
-
+                .handler(|ctx: AuthContext, input: CreatePlanetInput| async move {
+                    // ctx.user is guaranteed — no manual auth check needed
                     if input.name.trim().is_empty() {
                         return Err(OrpcError::bad_request("Planet name cannot be empty"));
                     }
-
                     let mut planets = ctx.planets.write().await;
                     let new_id = planets.iter().map(|p| p.id).max().unwrap_or(0) + 1;
-
-                    let planet = Planet {
-                        id: new_id,
-                        name: input.name,
-                        description: input.description,
-                    };
-
+                    let planet = Planet { id: new_id, name: input.name, description: input.description };
                     planets.push(planet.clone());
                     Ok(planet)
                 })
         },
 
-        // Profile route (requires auth)
+        // Protected: requires authentication via orpc middleware
         profile: os()
-            .context::<AppContext>()
+            .context::<BaseContext>()
+            .use_middleware(require_auth)
             .route(HttpMethod::Post, "/profile")
             .output::<serde_json::Value>()
-            .handler(|ctx, _: ()| async move {
-                let user = ctx.require_auth()?;
-
+            .handler(|ctx: AuthContext, _: ()| async move {
+                // ctx.user is guaranteed — direct field access, no Option unwrap
                 Ok(serde_json::json!({
-                    "id": user.id,
-                    "email": user.email,
-                    "name": user.name,
+                    "id":    ctx.user.id,
+                    "email": ctx.user.email,
+                    "name":  ctx.user.name,
                 }))
             }),
 
-        // Server-Sent Events streaming (public)
         stream: os()
-            .context::<AppContext>()
+            .context::<BaseContext>()
             .route(HttpMethod::Post, "/stream")
             .output::<Stream<StreamEvent>>()
-            .handler(|_ctx, _: ()| async {
-                // Create a stream that emits 10 events, one per second
+            .handler(|_ctx: BaseContext, _: ()| async {
                 let stream = tokio_stream::iter(0u32..)
                     .throttle(Duration::from_secs(1))
                     .take(10)
-                    .map(|count| StreamEvent {
-                        message: format!("Event #{count}"),
-                        count,
-                    });
-
+                    .map(|count| StreamEvent { message: format!("Event #{count}"), count });
                 Ok(stream)
             }),
 
-        // Async stream example (public)
         stream_async: os()
-            .context::<AppContext>()
+            .context::<BaseContext>()
             .route(HttpMethod::Post, "/stream-async")
             .output::<Stream<StreamEvent>>()
-            .handler(|_ctx, _: ()| async {
+            .handler(|_ctx: BaseContext, _: ()| async {
                 use async_stream::stream;
-
-                // Create an async stream using the async_stream crate
                 let s = stream! {
                     for i in 0u32..15 {
                         tokio::time::sleep(Duration::from_secs(1)).await;
-                        yield StreamEvent {
-                            message: format!("Async Stream Event #{i}"),
-                            count: i,
-                        };
+                        yield StreamEvent { message: format!("Async Stream Event #{i}"), count: i };
                     }
                 };
-
                 Ok(s)
             })
     }
-    .into_axum_router_with(base_ctx, extract_context);
+    // build_context populates current_user from Axum extensions each request;
+    // require_auth middleware then enforces auth on protected routes.
+    .into_axum_router_with(base_ctx, build_context);
 
-    // Get Better Auth's router (it needs state)
     let auth_router = auth.clone().axum_router();
 
-    // Build complete app with Better Auth routes and orpc routes
-    // We need to handle state carefully since auth_router needs Arc<BetterAuth> state
-    // but orpc_router has no state
-    // Auth middleware must wrap the orpc router directly so its extensions
-    // are visible to the context extractor on every /rpc request.
-    let orpc_with_auth = orpc_router.layer(middleware::from_fn_with_state(
-        auth.clone(),
-        auth_middleware,
-    ));
+    // Wrap the orpc router with the session extraction layer so that
+    // every request has a chance to have its user populated.
+    let orpc_with_session =
+        orpc_router.layer(middleware::from_fn_with_state(auth.clone(), session_layer));
 
     let app = Router::new()
-        .nest("/rpc", orpc_with_auth)
+        .nest("/rpc", orpc_with_session)
         .merge(
             Router::new()
                 .nest("/api/auth", auth_router)
                 .with_state(auth.clone()),
         )
-        // CORS for development
         .layer(
             CorsLayer::new()
                 .allow_origin([
@@ -442,22 +420,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Server running on http://127.0.0.1:3001");
     println!();
     println!("📚 Better Auth Endpoints (under /api/auth):");
-    println!("   POST /api/auth/sign-up/email        - Create account");
-    println!("   POST /api/auth/sign-in/email        - Sign in");
-    println!("   POST /api/auth/sign-out             - Sign out");
-    println!("   GET  /api/auth/get-session          - Get current session");
-    println!("   GET  /api/auth/list-sessions        - List all sessions");
-    println!("   POST /api/auth/revoke-session       - Revoke a session");
+    println!("   POST /api/auth/sign-up/email    - Create account");
+    println!("   POST /api/auth/sign-in/email    - Sign in");
+    println!("   POST /api/auth/sign-out         - Sign out");
+    println!("   GET  /api/auth/get-session      - Get current session");
     println!();
     println!("🔧 orpc Endpoints (under /rpc):");
-    println!("   POST /rpc/ping                      - Public ping (shows auth status)");
-    println!("   POST /rpc/profile                   - Get user profile (requires auth)");
-    println!("   POST /rpc/planet/list               - List all planets (public)");
-    println!("   POST /rpc/planet/list-paginated     - List planets with pagination (public)");
-    println!("   POST /rpc/planet/find               - Find planet by ID (public)");
-    println!("   POST /rpc/planet/create             - Create planet (requires auth)");
-    println!("   POST /rpc/stream                    - SSE streaming demo (public)");
-    println!("   POST /rpc/stream-async              - SSE async streaming demo (public)");
+    println!("   POST /rpc/ping                  - Public ping");
+    println!("   POST /rpc/profile               - User profile  [auth required]");
+    println!("   POST /rpc/planet/list           - List planets  [public]");
+    println!("   POST /rpc/planet/list-paginated - Paginated     [public]");
+    println!("   POST /rpc/planet/find           - Find by ID    [public]");
+    println!("   POST /rpc/planet/create         - Create planet [auth required]");
+    println!("   POST /rpc/stream                - SSE stream    [public]");
+    println!("   POST /rpc/stream-async          - SSE async     [public]");
     println!();
     println!("   Press Ctrl+C to shutdown");
 
@@ -471,13 +447,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn shutdown_signal() {
     use tokio::signal;
-
     let ctrl_c = async {
         signal::ctrl_c()
             .await
             .expect("failed to install Ctrl+C handler");
     };
-
     #[cfg(unix)]
     let terminate = async {
         signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -485,16 +459,10 @@ async fn shutdown_signal() {
             .recv()
             .await;
     };
-
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
-
     tokio::select! {
-        _ = ctrl_c => {
-            println!("\n🛑 Received Ctrl+C, shutting down gracefully...");
-        },
-        _ = terminate => {
-            println!("\n🛑 Received termination signal, shutting down gracefully...");
-        },
+        _ = ctrl_c     => println!("\n🛑 Received Ctrl+C, shutting down gracefully..."),
+        _ = terminate  => println!("\n🛑 Received termination signal, shutting down gracefully..."),
     }
 }

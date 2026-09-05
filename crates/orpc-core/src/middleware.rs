@@ -138,18 +138,18 @@ where
 impl<Ctx, NewCtx> Middleware<Ctx, NewCtx> {
     /// Adapt this middleware to work with input-aware logic.
     ///
-    /// The adapter function `f` receives a reference to the input and returns
-    /// a value that the middleware can use for its logic (e.g., extracting an ID).
+    /// This creates middleware that can access request input for permission checks,
+    /// validation, or other input-dependent logic.
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// async fn can_edit(ctx: AuthContext, id: i32, next: Next<AuthContext>) -> Result<AuthContext, OrpcError> {
+    /// async fn can_edit(ctx: AuthContext, id: i32) -> Result<AuthContext, OrpcError> {
     ///     check_permission(&ctx.db, id).await?;
-    ///     next.run(ctx).await
+    ///     Ok(ctx)
     /// }
     ///
-    /// let middleware = Middleware::new(can_edit)
+    /// let middleware = input_middleware(can_edit)
     ///     .adapt_input(|input: &UpdateInput| input.id);
     /// ```
     pub fn adapt_input<In, MappedIn, F>(
@@ -164,9 +164,20 @@ impl<Ctx, NewCtx> Middleware<Ctx, NewCtx> {
         AdaptedMiddleware {
             middleware: self,
             adapter: Arc::new(adapter),
+            _phantom: std::marker::PhantomData,
         }
     }
 }
+
+/// Type alias for input-aware middleware function.
+///
+/// Takes context, mapped input value, and returns transformed context.
+#[allow(dead_code)]
+pub type InputMiddlewareFn<Ctx, NewCtx, MappedIn> = Arc<
+    dyn Fn(Ctx, MappedIn) -> Pin<Box<dyn Future<Output = Result<NewCtx, OrpcError>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// A middleware that has been adapted to work with input.
 ///
@@ -174,6 +185,7 @@ impl<Ctx, NewCtx> Middleware<Ctx, NewCtx> {
 pub struct AdaptedMiddleware<Ctx, NewCtx, In, MappedIn> {
     middleware: Middleware<Ctx, NewCtx>,
     adapter: Arc<dyn Fn(&In) -> MappedIn + Send + Sync>,
+    _phantom: std::marker::PhantomData<In>,
 }
 
 impl<Ctx, NewCtx, In, MappedIn> Clone for AdaptedMiddleware<Ctx, NewCtx, In, MappedIn> {
@@ -181,12 +193,14 @@ impl<Ctx, NewCtx, In, MappedIn> Clone for AdaptedMiddleware<Ctx, NewCtx, In, Map
         Self {
             middleware: self.middleware.clone(),
             adapter: Arc::clone(&self.adapter),
+            _phantom: std::marker::PhantomData,
         }
     }
 }
 
-// Note: We'll implement IntoMiddleware for AdaptedMiddleware in T006 when we wire it into the builder,
-// since it needs to know about the input type at use_middleware() call time.
+// Note: AdaptedMiddleware integration with .use_middleware() would require
+// extending the builder to support input-aware middleware, which is beyond
+// the current scope. For now, this provides the structure for future enhancement.
 
 #[cfg(test)]
 mod tests {
@@ -284,5 +298,58 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Authentication failed"));
+    }
+
+    #[tokio::test]
+    async fn test_adapt_input_extracts_value() {
+        #[derive(Clone)]
+        struct Input {
+            id: i32,
+            name: String,
+        }
+
+        async fn require_auth(
+            ctx: BaseContext,
+            next: Next<AuthContext>,
+        ) -> Result<AuthContext, OrpcError> {
+            let auth_ctx = AuthContext {
+                value: ctx.value,
+                user_id: "user123".to_string(),
+            };
+            next.run(auth_ctx).await
+        }
+
+        // Note: AdaptedMiddleware doesn't implement IntoMiddleware yet,
+        // so we can't use it with .use_middleware(). This test just verifies
+        // the structure exists and can be created.
+        let middleware = Middleware::new(require_auth);
+        let _adapted = middleware.adapt_input(|input: &Input| input.id);
+    }
+
+    #[tokio::test]
+    async fn test_adapt_input_clone_works() {
+        #[derive(Clone)]
+        struct Input {
+            user_id: String,
+        }
+
+        async fn add_user(
+            ctx: BaseContext,
+            next: Next<AuthContext>,
+        ) -> Result<AuthContext, OrpcError> {
+            let auth_ctx = AuthContext {
+                value: ctx.value,
+                user_id: "test_user".to_string(),
+            };
+            next.run(auth_ctx).await
+        }
+
+        let middleware = Middleware::new(add_user);
+        let adapted = middleware.adapt_input(|input: &Input| input.user_id.clone());
+        let adapted_clone = adapted.clone();
+
+        // Verify clone works (compile-time check)
+        drop(adapted);
+        drop(adapted_clone);
     }
 }

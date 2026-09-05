@@ -1,9 +1,12 @@
-use crate::infrastructure::{
-    auth::{
-        middleware::{build_context, session_layer, BaseContext},
-        schema::AppAuthSchema,
+use crate::{
+    domain::models::auth::AuthenticatedUser,
+    infrastructure::{
+        auth::{
+            middleware::{build_context, session_layer, BaseContext},
+            schema::AppAuthSchema,
+        },
+        repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
     },
-    repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
 };
 use axum::{middleware, Router};
 use better_auth::BetterAuth;
@@ -18,8 +21,10 @@ pub async fn run_server(
     auth: Arc<BetterAuth<AppAuthSchema>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let base_ctx = BaseContext {
-        planet_repo: std::sync::Arc::new(InMemoryPlanetRepository::new(sample_planets())),
-        current_user: None,
+        planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
+        session: Arc::new(AuthenticatedUser::new(
+            better_auth::integrations::axum::OptionalSession(None),
+        )),
     };
 
     let orpc_axum_router = orpc_router.into_axum_router_with(base_ctx, build_context);

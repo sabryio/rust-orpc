@@ -1,9 +1,11 @@
 use crate::infrastructure::auth::guard::AppContext;
 use better_auth::prelude::AuthUser;
-use orpc_core::OrpcError;
+use orpc_core::{OrpcContext, OrpcError};
 use serde_json::json;
 
-pub async fn get_profile(ctx: AppContext, _: ()) -> Result<serde_json::Value, OrpcError> {
+pub async fn get_profile(
+    OrpcContext(ctx): OrpcContext<AppContext>,
+) -> Result<serde_json::Value, OrpcError> {
     // require_session() returns Err(401) if not authenticated
     let session = ctx.require_session()?;
 

@@ -1,8 +1,8 @@
 use crate::infrastructure::auth::guard::AppContext;
 use better_auth::prelude::AuthUser;
-use orpc_core::OrpcError;
+use orpc_core::{OrpcContext, OrpcError};
 
-pub async fn ping(ctx: AppContext, _: ()) -> Result<String, OrpcError> {
+pub async fn ping(OrpcContext(ctx): OrpcContext<AppContext>) -> Result<String, OrpcError> {
     match ctx.session() {
         Some(session) => Ok(format!(
             "pong (authenticated as {})",

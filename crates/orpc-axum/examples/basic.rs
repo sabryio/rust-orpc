@@ -4,7 +4,7 @@
 //! Each procedure declares its HTTP method and absolute path via .route().
 
 use orpc_axum::AxumRouter;
-use orpc_core::{os, router, HttpMethod, OrpcError};
+use orpc_core::{os, router, HttpMethod, OrpcContext, OrpcError, OrpcJson};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -12,7 +12,7 @@ struct AppContext {
     greeting: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct GreetInput {
     name: String,
 }
@@ -22,7 +22,7 @@ struct GreetOutput {
     message: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct FindInput {
     id: i32,
 }
@@ -40,43 +40,37 @@ async fn main() {
             .context::<AppContext>()
             .route(HttpMethod::Get, "/ping")
             .output::<String>()
-            .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
+            .handler(async || Ok("pong".to_string()) ),
 
         greet: os()
             .context::<AppContext>()
             .route(HttpMethod::Post, "/greet")
             .input::<GreetInput>()
             .output::<GreetOutput>()
-            .handler(|ctx, input: GreetInput| async move {
-                if input.name.is_empty() {
-                    return Err(OrpcError::bad_request("Name cannot be empty"));
-                }
-                Ok(GreetOutput {
-                    message: format!("{}, {}!", ctx.greeting, input.name),
-                })
-            }),
+            .handler(greet),
 
         planet: {
             list: os()
                 .context::<AppContext>()
                 .route(HttpMethod::Get, "/planet")
                 .output::<Vec<Planet>>()
-                .handler(|_ctx, _: ()| async move {
-                    Ok(vec![
-                        Planet { id: 1, name: "Earth".to_string() },
-                        Planet { id: 2, name: "Mars".to_string() },
-                    ])
-                }),
+                .handler(list_planets),
 
             find: os()
                 .context::<AppContext>()
                 .route(HttpMethod::Post, "/planet/find")
                 .input::<FindInput>()
                 .output::<Planet>()
-                .handler(|_ctx, input: FindInput| async move {
+                .handler(|OrpcContext(_ctx): OrpcContext<AppContext>, OrpcJson(input): OrpcJson<FindInput>| async move {
                     match input.id {
-                        1 => Ok(Planet { id: 1, name: "Earth".to_string() }),
-                        _ => Err(OrpcError::not_found(format!("Planet {} not found", input.id))),
+                        1 => Ok(Planet {
+                            id: 1,
+                            name: "Earth".to_string(),
+                        }),
+                        _ => Err(OrpcError::not_found(format!(
+                            "Planet {} not found",
+                            input.id
+                        ))),
                     }
                 })
         }
@@ -95,4 +89,31 @@ async fn main() {
         .await
         .unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn greet(
+    OrpcContext(ctx): OrpcContext<AppContext>,
+    OrpcJson(input): OrpcJson<GreetInput>,
+) -> Result<GreetOutput, OrpcError> {
+    if input.name.is_empty() {
+        return Err(OrpcError::bad_request("Name cannot be empty"));
+    }
+    Ok(GreetOutput {
+        message: format!("{}, {}!", ctx.greeting, input.name),
+    })
+}
+
+async fn list_planets(
+    OrpcContext(_ctx): OrpcContext<AppContext>,
+) -> Result<Vec<Planet>, OrpcError> {
+    Ok(vec![
+        Planet {
+            id: 1,
+            name: "Earth".to_string(),
+        },
+        Planet {
+            id: 2,
+            name: "Mars".to_string(),
+        },
+    ])
 }

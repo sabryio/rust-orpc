@@ -40,7 +40,10 @@
 //! ```
 
 use axum::{middleware, Router};
-use better_auth::{AuthSchema, BetterAuth, integrations::axum::{CurrentSession, OptionalSession}};
+use better_auth::{
+    integrations::axum::{CurrentSession, OptionalSession},
+    AuthSchema, BetterAuth,
+};
 use std::sync::Arc;
 
 /// Wraps a user-defined context with a Better-Auth session slot.

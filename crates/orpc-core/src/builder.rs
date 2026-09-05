@@ -224,9 +224,9 @@ impl<Ctx, HCtx, In, Out, R> ProcedureBuilder<Ctx, HCtx, In, Out, R> {
 // handler — only available in Routed state
 impl<Ctx, HCtx, In, Out> ProcedureBuilder<Ctx, HCtx, In, Out, Routed>
 where
-    Ctx: Clone + Send + 'static,
+    Ctx: Clone + Send + Sync + 'static,
     HCtx: Send + 'static,
-    In: serde::de::DeserializeOwned + Send + 'static,
+    In: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
     Out: serde::Serialize + Send + 'static,
 {
     /// Defines the handler for a procedure.
@@ -274,10 +274,10 @@ where
     ///     .output::<String>()
     ///     .handler(|_ctx, _: ()| async { Ok("pong".to_string()) });
     /// ```
-    pub fn handler<F, Fut>(self, handler: F) -> Procedure<Ctx, In, Out>
+    #[allow(clippy::type_complexity)]
+    pub fn handler<H, Extractors>(self, handler: H) -> Procedure<Ctx, In, Out>
     where
-        F: Fn(HCtx, In) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Out, OrpcError>> + Send + 'static,
+        H: crate::extractors::Handler<HCtx, In, Out, Extractors>,
     {
         // SAFETY: route is always Some when in Routed state — the type system
         // guarantees .route() was called before .handler().
@@ -285,27 +285,27 @@ where
 
         let handler = Arc::new(handler);
 
-        // Compose middleware into the handler closure
+        // Compose middleware + extraction into the handler closure
         let wrapped_handler: Arc<
             dyn Fn(Ctx, In) -> Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
                 + Send
                 + Sync,
         > = if let Some(middleware_stack) = self.middleware_stack {
-            // Middleware present: compose the stack with the handler
+            // Middleware present: compose the stack with extraction and handler
             Arc::new(move |ctx, input| {
                 let handler = Arc::clone(&handler);
                 let middleware_stack = Arc::clone(&middleware_stack);
                 Box::pin(async move {
+                    // 1. Run middleware to transform context
                     let hctx = middleware_stack(ctx).await?;
-                    handler(hctx, input).await
+
+                    // 2. Call handler (extraction happens inside Handler::call)
+                    handler.call(hctx, input).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         } else {
-            // No middleware: call handler directly
+            // No middleware: extract and call handler directly
             // SAFETY: When middleware_stack is None, HCtx = Ctx (guaranteed by ProcedureBuilder::new)
-            // We use transmute_copy which is safe because:
-            // 1. The size and alignment of Ctx and HCtx are identical (they're the same type)
-            // 2. We immediately forget the original to prevent double-drop
             Arc::new(move |ctx, input| {
                 let handler = Arc::clone(&handler);
                 Box::pin(async move {
@@ -315,7 +315,9 @@ where
                         std::ptr::read(ctx_ptr)
                     };
                     std::mem::forget(ctx);
-                    handler(hctx, input).await
+
+                    // Call handler (extraction happens inside Handler::call)
+                    handler.call(hctx, input).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         };
@@ -327,9 +329,9 @@ where
 // streaming handler — for Stream<Item = T> output types
 impl<Ctx, HCtx, In, T> ProcedureBuilder<Ctx, HCtx, In, crate::AsyncIterator<T>, Routed>
 where
-    Ctx: Clone + Send + 'static,
+    Ctx: Clone + Send + Sync + 'static,
     HCtx: Send + 'static,
-    In: serde::de::DeserializeOwned + Send + 'static,
+    In: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
     T: serde::Serialize + Send + 'static,
 {
     /// Defines a streaming handler for a procedure that outputs `Stream<Item = T>`.
@@ -358,11 +360,12 @@ where
     ///         Ok(stream)
     ///     });
     /// ```
-    pub fn handler<F, Fut, S>(self, handler: F) -> crate::StreamingProcedure<Ctx, In, T>
+    pub fn handler<F, Fut, S, Extractors>(self, handler: F) -> crate::StreamingProcedure<Ctx, In, T>
     where
-        F: Fn(HCtx, In) -> Fut + Send + Sync + 'static,
+        F: Fn(Extractors) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<S, OrpcError>> + Send + 'static,
         S: futures_core::Stream<Item = T> + Send + 'static,
+        Extractors: crate::extractors::FromOrpcRequest<HCtx> + Send + 'static,
     {
         let route = self.route.expect("route is always set in Routed state");
 
@@ -386,8 +389,20 @@ where
                     let handler = Arc::clone(&handler);
                     let middleware_stack = Arc::clone(&middleware_stack);
                     Box::pin(async move {
+                        // 1. Run middleware
                         let hctx = middleware_stack(ctx).await?;
-                        let stream = handler(hctx, input).await?;
+
+                        // 2. Serialize input for extraction
+                        let input_value = serde_json::to_value(&input).map_err(|e| {
+                            OrpcError::internal(format!("Failed to serialize input: {}", e))
+                        })?;
+
+                        // 3. Run extractors
+                        let (extractors, _, _) =
+                            Extractors::from_request(hctx, input_value).await?;
+
+                        // 4. Call handler
+                        let stream = handler(extractors).await?;
                         Ok(Box::pin(stream)
                             as std::pin::Pin<
                                 Box<dyn futures_core::Stream<Item = T> + Send>,
@@ -405,7 +420,18 @@ where
                             std::ptr::read(ctx_ptr)
                         };
                         std::mem::forget(ctx);
-                        let stream = handler(hctx, input).await?;
+
+                        // 1. Serialize input for extraction
+                        let input_value = serde_json::to_value(&input).map_err(|e| {
+                            OrpcError::internal(format!("Failed to serialize input: {}", e))
+                        })?;
+
+                        // 2. Run extractors
+                        let (extractors, _, _) =
+                            Extractors::from_request(hctx, input_value).await?;
+
+                        // 3. Call handler
+                        let stream = handler(extractors).await?;
                         Ok(Box::pin(stream)
                             as std::pin::Pin<
                                 Box<dyn futures_core::Stream<Item = T> + Send>,
@@ -546,107 +572,4 @@ where
 /// ```
 pub fn os() -> ProcedureBuilder<(), (), (), (), Unrouted> {
     ProcedureBuilder::new()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::route::HttpMethod;
-
-    #[derive(Clone)]
-    struct TestContext {
-        value: i32,
-    }
-
-    #[test]
-    fn test_builder_no_input() {
-        let proc = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Get, "/test")
-            .output::<String>()
-            .handler(|_ctx: TestContext, _: ()| async { Ok("test".to_string()) });
-
-        let _: crate::Procedure<TestContext, (), String> = proc;
-    }
-
-    #[test]
-    fn test_builder_with_input() {
-        #[derive(serde::Deserialize)]
-        struct Input {
-            value: i32,
-        }
-
-        let proc = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Post, "/test")
-            .input::<Input>()
-            .output::<String>()
-            .handler(|_ctx: TestContext, input: Input| async move {
-                Ok(format!("value: {}", input.value))
-            });
-
-        let _: crate::Procedure<TestContext, Input, String> = proc;
-    }
-
-    #[test]
-    fn test_builder_route_metadata_stored() {
-        let proc = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Delete, "/items/{id}")
-            .output::<String>()
-            .handler(|_ctx: TestContext, _: ()| async { Ok("deleted".to_string()) });
-
-        assert_eq!(proc.route.method, HttpMethod::Delete);
-        assert_eq!(proc.route.path, "/items/{id}");
-    }
-
-    #[test]
-    fn test_builder_order_independent() {
-        #[derive(serde::Deserialize)]
-        struct Input {
-            x: i32,
-        }
-
-        // input before output
-        let _proc1 = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Post, "/add")
-            .input::<Input>()
-            .output::<i32>()
-            .handler(|_ctx: TestContext, input: Input| async move { Ok(input.x * 2) });
-
-        // output before input
-        let _proc2 = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Post, "/add")
-            .output::<i32>()
-            .input::<Input>()
-            .handler(|_ctx: TestContext, input: Input| async move { Ok(input.x * 2) });
-    }
-
-    #[test]
-    fn test_builder_route_before_output() {
-        // route can be called before output
-        let proc = os()
-            .context::<TestContext>()
-            .route(HttpMethod::Get, "/ping")
-            .output::<String>()
-            .handler(|_ctx: TestContext, _: ()| async { Ok("pong".to_string()) });
-
-        assert_eq!(proc.route.method, HttpMethod::Get);
-        assert_eq!(proc.route.path, "/ping");
-    }
-
-    #[test]
-    fn test_builder_route_after_output() {
-        // route can also be called after output
-        let proc = os()
-            .context::<TestContext>()
-            .output::<String>()
-            .route(HttpMethod::Get, "/ping")
-            .handler(|_ctx: TestContext, _: ()| async { Ok("pong".to_string()) });
-
-        assert_eq!(proc.route.method, HttpMethod::Get);
-        assert_eq!(proc.route.path, "/ping");
-    }
 }

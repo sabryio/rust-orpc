@@ -6,6 +6,13 @@ import { oc } from "@orpc/contract";
 import { openapi } from "@orpc/openapi";
 import { asyncIteratorObject } from "@orpc/contract";
 
+export const CreatePlanetInputSchema = z.object({
+  name: z.string(),
+  description: z.string().optional()
+});
+
+export type CreatePlanetInput = z.infer<typeof CreatePlanetInputSchema>;
+
 export const PlanetSchema = z.object({
   id: z.number().int(),
   name: z.string(),
@@ -21,13 +28,6 @@ export const ListPlanetsPaginatedOutputSchema = z.object({
 
 export type ListPlanetsPaginatedOutput = z.infer<typeof ListPlanetsPaginatedOutputSchema>;
 
-export const StreamEventSchema = z.object({
-  message: z.string(),
-  count: z.number().int()
-});
-
-export type StreamEvent = z.infer<typeof StreamEventSchema>;
-
 export const ListPlanetsPaginatedInputSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int().optional()
@@ -35,18 +35,18 @@ export const ListPlanetsPaginatedInputSchema = z.object({
 
 export type ListPlanetsPaginatedInput = z.infer<typeof ListPlanetsPaginatedInputSchema>;
 
+export const StreamEventSchema = z.object({
+  message: z.string(),
+  count: z.number().int()
+});
+
+export type StreamEvent = z.infer<typeof StreamEventSchema>;
+
 export const FindPlanetInputSchema = z.object({
   id: z.number().int()
 });
 
 export type FindPlanetInput = z.infer<typeof FindPlanetInputSchema>;
-
-export const CreatePlanetInputSchema = z.object({
-  name: z.string(),
-  description: z.string().optional()
-});
-
-export type CreatePlanetInput = z.infer<typeof CreatePlanetInputSchema>;
 
 export const contract = {
   streamEventsAsync: oc

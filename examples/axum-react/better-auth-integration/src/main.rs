@@ -29,9 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         println!("📝 Generating TypeScript contract...");
         orpc::generate_contract()
-            .output("client/src/rpc/index.ts")
+            .output(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../client/src/rpc/bindings.ts"
+            ))
             .expect("contract generation failed");
-        println!("✅ Generated client/src/rpc/index.ts");
+        println!("✅ Generated examples/axum-react/client/src/rpc/bindings.ts");
     }
 
     // 1. Database & auth setup

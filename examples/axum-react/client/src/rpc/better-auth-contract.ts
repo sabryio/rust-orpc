@@ -1,0 +1,25 @@
+import { createORPCClient, isInferableError, ORPCError } from "@orpc/client";
+import { OpenAPILink } from "@orpc/openapi/fetch";
+import { type RouterContractClient } from "@orpc/contract";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
+import { contract } from "./bindings";
+export { consumeAsyncIterator, getEventMeta } from "@orpc/client";
+
+const link = new OpenAPILink(contract, {
+  origin: "http://localhost:3001",
+  url: "/rpc",
+  fetch(url, init, options, path) {
+    console.log({ url, init, options, path });
+    return globalThis.fetch(url, {
+      ...init,
+      credentials: "include",
+    });
+  },
+});
+
+export const client: RouterContractClient<typeof contract> =
+  createORPCClient(link);
+
+export const orpc = createTanstackQueryUtils(client);
+
+export { isInferableError, ORPCError };

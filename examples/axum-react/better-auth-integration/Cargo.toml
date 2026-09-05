@@ -15,7 +15,7 @@ tower = "0.5"
 tower-http = { version = "0.7", features = ["cors"] }
 
 # orpc
-orpc = { path = "../../crates/orpc" }
+orpc = { workspace = true }
 
 # Better Auth RS (using alpha version)
 better-auth = { version = "1.0.0-alpha.2", features = ["axum", "seaorm2"] }

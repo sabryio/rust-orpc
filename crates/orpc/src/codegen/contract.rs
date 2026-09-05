@@ -3,16 +3,14 @@
 //! Produces the `export const contract = { ... } as const` TypeScript object
 //! from collected handler metadata, grouped by path prefix (namespace).
 
-use crate::HandlerInfo;
+use super::HandlerInfo;
 use std::collections::BTreeMap;
 
 /// Generate the `export const contract = { ... } as const` TypeScript block.
-pub fn generate_contract(handlers: &[HandlerInfo], errors: &[crate::ErrorInfo]) -> String {
-    // Build error lookup: type_name → ErrorInfo
-    let error_map: std::collections::HashMap<&str, &crate::ErrorInfo> =
+pub fn generate_contract(handlers: &[HandlerInfo], errors: &[super::ErrorInfo]) -> String {
+    let error_map: std::collections::HashMap<&str, &super::ErrorInfo> =
         errors.iter().map(|e| (e.type_name, e)).collect();
 
-    // Group handlers by their namespace (first path segment)
     let mut namespaces: BTreeMap<String, Vec<&HandlerInfo>> = BTreeMap::new();
 
     for handler in handlers {
@@ -24,18 +22,13 @@ pub fn generate_contract(handlers: &[HandlerInfo], errors: &[crate::ErrorInfo]) 
 
     for (namespace, handlers) in &namespaces {
         if namespace.is_empty() {
-            // Root-level procedures
             for h in handlers {
-                lines.push(format!("  {},", generate_procedure_entry(h, 1, &error_map)));
+                lines.push(format!("  {},", generate_procedure_entry(h, &error_map)));
             }
         } else {
-            // Namespaced procedures
             lines.push(format!("  {}: {{", namespace));
             for h in handlers {
-                lines.push(format!(
-                    "    {},",
-                    generate_procedure_entry(h, 2, &error_map)
-                ));
+                lines.push(format!("    {},", generate_procedure_entry(h, &error_map)));
             }
             lines.push("  },".to_string());
         }
@@ -48,64 +41,42 @@ pub fn generate_contract(handlers: &[HandlerInfo], errors: &[crate::ErrorInfo]) 
     lines.join("\n")
 }
 
-/// Generate a single procedure entry in the contract object.
 fn generate_procedure_entry(
     handler: &HandlerInfo,
-    _indent: usize,
-    error_map: &std::collections::HashMap<&str, &crate::ErrorInfo>,
+    error_map: &std::collections::HashMap<&str, &super::ErrorInfo>,
 ) -> String {
     let key = handler_key(handler.name);
     let method = handler.method;
     let path = handler.path;
+
     let input_schema = {
-        let schema = crate::typescript::rust_type_to_ts_schema(handler.input_type_name);
-        if schema.is_empty() {
-            String::new()
-        } else {
-            format!("\n      .input({})", schema)
-        }
+        let schema = super::typescript::rust_type_to_ts_schema(handler.input_type_name);
+        if schema.is_empty() { String::new() } else { format!("\n      .input({})", schema) }
     };
+
     let output_schema = {
-        // Use stream_event_type_name if available for Sse types
         let schema = if handler.output_type_name.starts_with("Sse<") {
-            if let Some(stream_event_type) = handler.stream_event_type_name {
-                // Use the real stream event schema
-                format!("asyncIteratorObject({}Schema)", stream_event_type)
-            } else {
-                // Fallback to z.unknown()
-                crate::typescript::rust_type_to_ts_schema(handler.output_type_name)
+            match handler.stream_event_type_name {
+                Some(event_type) => format!("asyncIteratorObject({}Schema)", event_type),
+                None => super::typescript::rust_type_to_ts_schema(handler.output_type_name),
             }
         } else {
-            crate::typescript::rust_type_to_ts_schema(handler.output_type_name)
+            super::typescript::rust_type_to_ts_schema(handler.output_type_name)
         };
-
-        if schema.is_empty() {
-            String::new()
-        } else {
-            format!("\n      .output({})", schema)
-        }
+        if schema.is_empty() { String::new() } else { format!("\n      .output({})", schema) }
     };
 
-    // Generate .errors({...}) if handler has an error type
     let errors_block = if let Some(error_type_name) = handler.error_type_name {
         if let Some(error_info) = error_map.get(error_type_name) {
-            let mut error_entries = Vec::new();
-            for variant in &error_info.variants {
-                let entry = if let Some(data_schema) = variant.data_schema {
-                    format!(
-                        "        {}: {{\n          data: {}\n        }}",
-                        variant.name, data_schema
-                    )
-                } else {
-                    format!("        {}: {{}}", variant.name)
-                };
-                error_entries.push(entry);
-            }
-            if !error_entries.is_empty() {
-                format!(
-                    "\n      .errors({{\n{}\n      }})",
-                    error_entries.join(",\n")
-                )
+            let entries: Vec<String> = error_info.variants.iter().map(|v| {
+                match v.data_schema {
+                    Some(schema) => format!("        {}: {{\n          data: {}\n        }}", v.name, schema),
+                    None => format!("        {}: {{}}", v.name),
+                }
+            }).collect();
+
+            if !entries.is_empty() {
+                format!("\n      .errors({{\n{}\n      }})", entries.join(",\n"))
             } else {
                 String::new()
             }
@@ -122,26 +93,16 @@ fn generate_procedure_entry(
     )
 }
 
-/// Extract the first path segment as namespace.
-///
-/// `"/planet/list"` → `"planet"`
-/// `"/ping"` → `""` (root level)
+/// `"/planet/list"` → `"planet"`, `"/ping"` → `""`
 fn extract_namespace(path: &str) -> String {
     let segments: Vec<&str> = path.trim_start_matches('/').splitn(3, '/').collect();
-    if segments.len() >= 2 {
-        segments[0].to_string()
-    } else {
-        String::new()
-    }
+    if segments.len() >= 2 { segments[0].to_string() } else { String::new() }
 }
 
-/// Convert a snake_case handler name to camelCase TypeScript key.
-///
 /// `"list_planets"` → `"listPlanets"`
 fn handler_key(name: &str) -> String {
     let mut result = String::new();
     let mut capitalize_next = false;
-
     for ch in name.chars() {
         if ch == '_' {
             capitalize_next = true;
@@ -152,7 +113,6 @@ fn handler_key(name: &str) -> String {
             result.push(ch);
         }
     }
-
     result
 }
 
@@ -176,31 +136,20 @@ mod tests {
 
     #[test]
     fn contract_contains_handlers() {
-        use crate::HandlerInfo;
-
         let handlers = vec![
             HandlerInfo {
-                name: "list_planets",
-                method: "POST",
-                path: "/planet/list",
-                input_type_name: "()",
-                output_type_name: "Vec<Planet>",
-                module_path: "handlers::planet",
-                error_type_name: None,
+                name: "list_planets", method: "POST", path: "/planet/list",
+                input_type_name: "()", output_type_name: "Vec<Planet>",
+                module_path: "handlers::planet", error_type_name: None,
                 stream_event_type_name: None,
             },
             HandlerInfo {
-                name: "ping",
-                method: "GET",
-                path: "/ping",
-                input_type_name: "()",
-                output_type_name: "String",
-                module_path: "handlers",
-                error_type_name: None,
+                name: "ping", method: "GET", path: "/ping",
+                input_type_name: "()", output_type_name: "String",
+                module_path: "handlers", error_type_name: None,
                 stream_event_type_name: None,
             },
         ];
-
         let output = generate_contract(&handlers, &[]);
         assert!(output.contains("listPlanets"));
         assert!(output.contains("ping"));

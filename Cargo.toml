@@ -1,12 +1,11 @@
 [workspace]
 members = [
-    "crates/orpc-core",
-    "crates/orpc-axum",
     "crates/orpc-macros",
-    "crates/orpc-codegen",
     "crates/orpc",
     "examples/axum-react/server",
-    "examples/better-auth-integration",
-    "examples/axum-native",
+    "examples/axum-react/better-auth-integration",
 ]
 resolver = "3"
+
+[workspace.dependencies]
+orpc = { path = "crates/orpc" }

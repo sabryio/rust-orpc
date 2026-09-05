@@ -10,10 +10,7 @@ keywords = ["rpc", "axum", "typescript", "codegen", "openapi"]
 categories = ["web-programming", "api-bindings"]
 
 [dependencies]
-orpc-core = { path = "../orpc-core", version = "0.1.0" }
-orpc-axum = { path = "../orpc-axum", version = "0.1.0" }
 orpc-macros = { path = "../orpc-macros", version = "0.1.0" }
-orpc-codegen = { path = "../orpc-codegen", version = "0.1.0" }
 inventory = "0.3"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }

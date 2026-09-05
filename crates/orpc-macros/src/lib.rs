@@ -3,12 +3,9 @@
 //! This crate provides macros for annotating handlers, deriving schemas,
 //! and building routers with auto-discovery.
 
-mod ast;
 mod error_derive;
-mod generate;
 mod openapi_macro;
 mod orpc_macro;
-mod parse;
 mod router_macro;
 mod zod_ts;
 

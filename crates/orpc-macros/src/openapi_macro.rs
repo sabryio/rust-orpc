@@ -35,14 +35,31 @@ impl Parse for OpenApiField {
     }
 }
 
-/// Parsed input for openapi! macro: `{ field1: value1, field2: value2, ... }`
+/// Parsed input for openapi! macro.
+/// Accepts all three forms:
+/// - `openapi!{ method: "POST", path: "/ping" }`        — brace syntax
+/// - `openapi!( method: "POST", path: "/ping" )`        — paren syntax  
+/// - `openapi!({ method: "POST", path: "/ping" })`      — TypeScript-like: paren wrapping braces
 pub struct OpenApiMacroInput {
     fields: Punctuated<OpenApiField, Token![,]>,
 }
 
 impl Parse for OpenApiMacroInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        let fields = Punctuated::parse_terminated(input)?;
+        // When invoked as openapi!( ... ), the entire content between ( ) is `input`.
+        // When invoked as openapi!{ ... }, the entire content between { } is `input`.
+        // When invoked as openapi!({ ... }), `input` contains `{ ... }` — a brace group.
+        let fields = if input.peek(syn::token::Brace) {
+            // openapi!({ ... }) — TypeScript object literal style
+            // The parens are the macro delimiter, so input starts directly with `{`
+            let brace_content;
+            syn::braced!(brace_content in input);
+            Punctuated::parse_terminated(&brace_content)?
+        } else {
+            // openapi!{ ... } or openapi!( ... ) — fields directly in input
+            Punctuated::parse_terminated(input)?
+        };
+
         Ok(OpenApiMacroInput { fields })
     }
 }

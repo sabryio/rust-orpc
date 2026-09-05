@@ -18,14 +18,14 @@ pub fn build_orpc_router() -> impl orpc_axum::AxumRouter<BaseContext> {
     router! {
         ping: os()
             .context::<BaseContext>()
-            .meta(openapi!{ method: "POST", path: "/ping" })
+            .meta(openapi!({ method: "POST", path: "/ping" }))
             .output::<String>()
             .handler(ping::ping),
 
         planet: {
             list: os()
                 .context::<BaseContext>()
-                .meta(openapi!{ method: "POST", path: "/planet/list" })
+                .meta(openapi!({ method: "POST", path: "/planet/list" }))
                 .output::<Vec<Planet>>()
                 .handler(planet::list_planets),
 
@@ -38,7 +38,7 @@ pub fn build_orpc_router() -> impl orpc_axum::AxumRouter<BaseContext> {
 
             find: os()
                 .context::<BaseContext>()
-                .meta(openapi!{ method: "POST", path: "/planet/find" })
+                .meta(openapi!({ method: "POST", path: "/planet/find" }))
                 .input::<FindPlanetInput>()
                 .output::<Planet>()
                 .handler(planet::find_planet),

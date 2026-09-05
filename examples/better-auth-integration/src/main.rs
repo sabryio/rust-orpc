@@ -24,6 +24,16 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Better Auth + orpc integration example...");
 
+    // Generate TypeScript contract before starting the server
+    #[cfg(debug_assertions)]
+    {
+        println!("📝 Generating TypeScript contract...");
+        orpc::generate_contract()
+            .output("client/src/rpc/index.ts")
+            .expect("contract generation failed");
+        println!("✅ Generated client/src/rpc/index.ts");
+    }
+
     // 1. Database & auth setup
     let database = infrastructure::db::seaorm::connect("sqlite::memory:").await?;
     infrastructure::auth::schema::run_app_migrations(&database).await?;

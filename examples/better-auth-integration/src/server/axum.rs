@@ -8,15 +8,10 @@ pub async fn run_server(
     state: AppState,
     auth: Arc<BetterAuth<AppAuthSchema>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Resolve auth router's state before nesting — matches axum-react pattern
-    let auth_router = auth.clone().axum_router().with_state(auth);
-
-    // Build the orpc handler router with state, then nest alongside auth
-    let rpc_router = crate::application::router::build_router(state.clone());
-
+    // Nest both routers (both already have their state applied)
     let app = Router::new()
-        .nest("/rpc", rpc_router)
-        .nest("/api/auth", auth_router)
+        .nest("/rpc", orpc::router!(state))
+        .nest("/api/auth", auth.clone().axum_router().with_state(auth))
         .layer(
             CorsLayer::new()
                 .allow_origin([

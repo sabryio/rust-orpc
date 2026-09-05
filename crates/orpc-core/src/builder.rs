@@ -18,6 +18,7 @@
 
 use crate::middleware::MiddlewareStackFn;
 use crate::openapi::OpenApiMeta;
+use crate::procedure::HandlerFn;
 use crate::route::{HttpMethod, RouteMetadata};
 use crate::{OrpcError, Procedure};
 use std::future::Future;
@@ -286,28 +287,28 @@ where
         let handler = Arc::new(handler);
 
         // Compose middleware + extraction into the handler closure
-        let wrapped_handler: Arc<
-            dyn Fn(Ctx, In) -> Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
-                + Send
-                + Sync,
-        > = if let Some(middleware_stack) = self.middleware_stack {
+        let wrapped_handler: HandlerFn<Ctx, In, Out> = if let Some(middleware_stack) =
+            self.middleware_stack
+        {
             // Middleware present: compose the stack with extraction and handler
-            Arc::new(move |ctx, input| {
+            Arc::new(move |ctx, input, extensions| {
                 let handler = Arc::clone(&handler);
                 let middleware_stack = Arc::clone(&middleware_stack);
+                let extensions = extensions.map(Arc::clone);
                 Box::pin(async move {
                     // 1. Run middleware to transform context
                     let hctx = middleware_stack(ctx).await?;
 
                     // 2. Call handler (extraction happens inside Handler::call)
-                    handler.call(hctx, input, None).await
+                    handler.call(hctx, input, extensions.as_ref()).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         } else {
             // No middleware: extract and call handler directly
             // SAFETY: When middleware_stack is None, HCtx = Ctx (guaranteed by ProcedureBuilder::new)
-            Arc::new(move |ctx, input| {
+            Arc::new(move |ctx, input, extensions| {
                 let handler = Arc::clone(&handler);
+                let extensions = extensions.map(Arc::clone);
                 Box::pin(async move {
                     // SAFETY: HCtx = Ctx when no middleware
                     let hctx: HCtx = unsafe {
@@ -317,7 +318,7 @@ where
                     std::mem::forget(ctx);
 
                     // Call handler (extraction happens inside Handler::call)
-                    handler.call(hctx, input, None).await
+                    handler.call(hctx, input, extensions.as_ref()).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         };

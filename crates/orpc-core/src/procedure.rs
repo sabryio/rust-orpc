@@ -40,8 +40,14 @@ pub trait ProcedureHandler<Ctx>: Send + Sync {
     fn route_metadata(&self) -> &RouteMetadata;
 }
 
-type HandlerFn<Ctx, In, Out> = Arc<
-    dyn Fn(Ctx, In) -> Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>> + Send + Sync,
+pub(crate) type HandlerFn<Ctx, In, Out> = Arc<
+    dyn Fn(
+            Ctx,
+            In,
+            Option<&Arc<dyn Any + Send + Sync>>,
+        ) -> Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
+        + Send
+        + Sync,
 >;
 
 /// A typed RPC procedure with compile-time guarantees.
@@ -91,12 +97,12 @@ where
         &self,
         ctx: Ctx,
         input: Value,
-        _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+        extensions: Option<&Arc<dyn Any + Send + Sync>>,
     ) -> Result<OutputKind, OrpcError> {
         let typed_input: In = serde_json::from_value(input)
             .map_err(|e| OrpcError::bad_request(format!("Failed to deserialize input: {}", e)))?;
 
-        let output = (self.handler)(ctx, typed_input).await?;
+        let output = (self.handler)(ctx, typed_input, extensions).await?;
 
         let json_output =
             serde_json::to_value(&output).map_err(|e| OrpcError::internal(e.to_string()))?;

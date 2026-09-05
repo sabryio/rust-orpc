@@ -87,167 +87,57 @@ where
 
 // Tuple implementations for chaining extractors
 
-#[async_trait]
-impl<Ctx> FromOrpcRequest<Ctx> for ()
-where
-    Ctx: Send + 'static,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        Ok(((), ctx, input))
-    }
+// Macro to generate FromOrpcRequest implementations for tuples
+macro_rules! impl_from_orpc_request_tuple {
+    // Base case: empty tuple
+    () => {
+        #[async_trait]
+        impl<Ctx> FromOrpcRequest<Ctx> for ()
+        where
+            Ctx: Send + 'static,
+        {
+            async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
+                Ok(((), ctx, input))
+            }
+        }
+    };
+
+    // Recursive case: 1+ extractors in tuple
+    ($($E:ident),+) => {
+        #[async_trait]
+        impl<Ctx, $($E),+> FromOrpcRequest<Ctx> for ($($E,)+)
+        where
+            Ctx: Send + 'static,
+            $($E: FromOrpcRequest<Ctx>,)+
+        {
+            #[allow(non_snake_case)]
+            async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
+                impl_from_orpc_request_tuple!(@extract ctx, input => $($E),+);
+                Ok((($($E,)+), ctx, input))
+            }
+        }
+    };
+
+    // Helper: extract tuple elements sequentially
+    (@extract $ctx:ident, $input:ident => $E1:ident) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
+    };
+    (@extract $ctx:ident, $input:ident => $E1:ident, $($E:ident),+) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
+        impl_from_orpc_request_tuple!(@extract $ctx, $input => $($E),+);
+    };
 }
 
-#[async_trait]
-impl<Ctx, E1> FromOrpcRequest<Ctx> for (E1,)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        Ok(((e1,), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2> FromOrpcRequest<Ctx> for (E1, E2)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        Ok(((e1, e2), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3> FromOrpcRequest<Ctx> for (E1, E2, E3)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3, E4> FromOrpcRequest<Ctx> for (E1, E2, E3, E4)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-    E4: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        let (e4, ctx, input) = E4::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3, e4), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3, E4, E5> FromOrpcRequest<Ctx> for (E1, E2, E3, E4, E5)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-    E4: FromOrpcRequest<Ctx>,
-    E5: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        let (e4, ctx, input) = E4::from_request(ctx, input).await?;
-        let (e5, ctx, input) = E5::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3, e4, e5), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3, E4, E5, E6> FromOrpcRequest<Ctx> for (E1, E2, E3, E4, E5, E6)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-    E4: FromOrpcRequest<Ctx>,
-    E5: FromOrpcRequest<Ctx>,
-    E6: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        let (e4, ctx, input) = E4::from_request(ctx, input).await?;
-        let (e5, ctx, input) = E5::from_request(ctx, input).await?;
-        let (e6, ctx, input) = E6::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3, e4, e5, e6), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3, E4, E5, E6, E7> FromOrpcRequest<Ctx> for (E1, E2, E3, E4, E5, E6, E7)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-    E4: FromOrpcRequest<Ctx>,
-    E5: FromOrpcRequest<Ctx>,
-    E6: FromOrpcRequest<Ctx>,
-    E7: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        let (e4, ctx, input) = E4::from_request(ctx, input).await?;
-        let (e5, ctx, input) = E5::from_request(ctx, input).await?;
-        let (e6, ctx, input) = E6::from_request(ctx, input).await?;
-        let (e7, ctx, input) = E7::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3, e4, e5, e6, e7), ctx, input))
-    }
-}
-
-#[async_trait]
-impl<Ctx, E1, E2, E3, E4, E5, E6, E7, E8> FromOrpcRequest<Ctx> for (E1, E2, E3, E4, E5, E6, E7, E8)
-where
-    Ctx: Send + 'static,
-    E1: FromOrpcRequest<Ctx>,
-    E2: FromOrpcRequest<Ctx>,
-    E3: FromOrpcRequest<Ctx>,
-    E4: FromOrpcRequest<Ctx>,
-    E5: FromOrpcRequest<Ctx>,
-    E6: FromOrpcRequest<Ctx>,
-    E7: FromOrpcRequest<Ctx>,
-    E8: FromOrpcRequest<Ctx>,
-{
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-        let (e1, ctx, input) = E1::from_request(ctx, input).await?;
-        let (e2, ctx, input) = E2::from_request(ctx, input).await?;
-        let (e3, ctx, input) = E3::from_request(ctx, input).await?;
-        let (e4, ctx, input) = E4::from_request(ctx, input).await?;
-        let (e5, ctx, input) = E5::from_request(ctx, input).await?;
-        let (e6, ctx, input) = E6::from_request(ctx, input).await?;
-        let (e7, ctx, input) = E7::from_request(ctx, input).await?;
-        let (e8, ctx, input) = E8::from_request(ctx, input).await?;
-        Ok(((e1, e2, e3, e4, e5, e6, e7, e8), ctx, input))
-    }
-}
+// Generate implementations for 0-8 element tuples
+impl_from_orpc_request_tuple!();
+impl_from_orpc_request_tuple!(E1);
+impl_from_orpc_request_tuple!(E1, E2);
+impl_from_orpc_request_tuple!(E1, E2, E3);
+impl_from_orpc_request_tuple!(E1, E2, E3, E4);
+impl_from_orpc_request_tuple!(E1, E2, E3, E4, E5);
+impl_from_orpc_request_tuple!(E1, E2, E3, E4, E5, E6);
+impl_from_orpc_request_tuple!(E1, E2, E3, E4, E5, E6, E7);
+impl_from_orpc_request_tuple!(E1, E2, E3, E4, E5, E6, E7, E8);
 
 /// Trait for handler functions with extractors.
 ///
@@ -270,109 +160,66 @@ pub trait Handler<Ctx, In, Out, Extractors>: Send + Sync + 'static {
     async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError>;
 }
 
-// Implement Handler for functions with 0 extractors
-#[async_trait]
-impl<Ctx, In, Out, F, Fut> Handler<Ctx, In, Out, ()> for F
-where
-    Ctx: Send + 'static,
-    In: Serialize + Send + 'static,
-    Out: Send + 'static,
-    F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Out, OrpcError>> + Send,
-{
-    async fn call(&self, _ctx: Ctx, _input: In) -> Result<Out, OrpcError> {
-        self().await
-    }
+// Macro to generate Handler implementations for different arities
+macro_rules! impl_handler {
+    // Base case: 0 extractors
+    () => {
+        #[async_trait]
+        impl<Ctx, In, Out, F, Fut> Handler<Ctx, In, Out, ()> for F
+        where
+            Ctx: Send + 'static,
+            In: Serialize + Send + 'static,
+            Out: Send + 'static,
+            F: Fn() -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = Result<Out, OrpcError>> + Send,
+        {
+            async fn call(&self, _ctx: Ctx, _input: In) -> Result<Out, OrpcError> {
+                self().await
+            }
+        }
+    };
+
+    // Recursive case: 1+ extractors
+    ($($E:ident),+) => {
+        #[async_trait]
+        impl<Ctx, In, Out, $($E,)+ F, Fut> Handler<Ctx, In, Out, ($($E,)+)> for F
+        where
+            Ctx: Clone + Send + 'static,
+            In: Serialize + Send + 'static,
+            Out: Send + 'static,
+            $($E: FromOrpcRequest<Ctx> + Send,)+
+            F: Fn($($E),+) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = Result<Out, OrpcError>> + Send,
+        {
+            #[allow(non_snake_case)]
+            async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
+                let input_value = serde_json::to_value(&input)
+                    .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
+
+                impl_handler!(@extract ctx, input_value => $($E),+);
+
+                self($($E),+).await
+            }
+        }
+    };
+
+    // Helper: extract extractors sequentially
+    (@extract $ctx:ident, $input:ident => $E1:ident) => {
+        let ($E1, _, _) = $E1::from_request($ctx, $input).await?;
+    };
+    (@extract $ctx:ident, $input:ident => $E1:ident, $($E:ident),+) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
+        impl_handler!(@extract $ctx, $input => $($E),+);
+    };
 }
 
-// Implement Handler for functions with 1 extractor
-#[async_trait]
-impl<Ctx, In, Out, E1, F, Fut> Handler<Ctx, In, Out, (E1,)> for F
-where
-    Ctx: Clone + Send + 'static,
-    In: Serialize + Send + 'static,
-    Out: Send + 'static,
-    E1: FromOrpcRequest<Ctx> + Send,
-    F: Fn(E1) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Out, OrpcError>> + Send,
-{
-    async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
-        let input_value = serde_json::to_value(&input)
-            .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
-
-        let (e1, _, _) = E1::from_request(ctx, input_value).await?;
-        self(e1).await
-    }
-}
-
-// Implement Handler for functions with 2 extractors
-#[async_trait]
-impl<Ctx, In, Out, E1, E2, F, Fut> Handler<Ctx, In, Out, (E1, E2)> for F
-where
-    Ctx: Clone + Send + 'static,
-    In: Serialize + Send + 'static,
-    Out: Send + 'static,
-    E1: FromOrpcRequest<Ctx> + Send,
-    E2: FromOrpcRequest<Ctx> + Send,
-    F: Fn(E1, E2) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Out, OrpcError>> + Send,
-{
-    async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
-        let input_value = serde_json::to_value(&input)
-            .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
-
-        let (e1, ctx, input_value) = E1::from_request(ctx, input_value).await?;
-        let (e2, _, _) = E2::from_request(ctx, input_value).await?;
-        self(e1, e2).await
-    }
-}
-
-// Implement Handler for functions with 3 extractors
-#[async_trait]
-impl<Ctx, In, Out, E1, E2, E3, F, Fut> Handler<Ctx, In, Out, (E1, E2, E3)> for F
-where
-    Ctx: Clone + Send + 'static,
-    In: Serialize + Send + 'static,
-    Out: Send + 'static,
-    E1: FromOrpcRequest<Ctx> + Send,
-    E2: FromOrpcRequest<Ctx> + Send,
-    E3: FromOrpcRequest<Ctx> + Send,
-    F: Fn(E1, E2, E3) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Out, OrpcError>> + Send,
-{
-    async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
-        let input_value = serde_json::to_value(&input)
-            .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
-
-        let (e1, ctx, input_value) = E1::from_request(ctx, input_value).await?;
-        let (e2, ctx, input_value) = E2::from_request(ctx, input_value).await?;
-        let (e3, _, _) = E3::from_request(ctx, input_value).await?;
-        self(e1, e2, e3).await
-    }
-}
-
-// Implement Handler for functions with 4 extractors
-#[async_trait]
-impl<Ctx, In, Out, E1, E2, E3, E4, F, Fut> Handler<Ctx, In, Out, (E1, E2, E3, E4)> for F
-where
-    Ctx: Clone + Send + 'static,
-    In: Serialize + Send + 'static,
-    Out: Send + 'static,
-    E1: FromOrpcRequest<Ctx> + Send,
-    E2: FromOrpcRequest<Ctx> + Send,
-    E3: FromOrpcRequest<Ctx> + Send,
-    E4: FromOrpcRequest<Ctx> + Send,
-    F: Fn(E1, E2, E3, E4) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Out, OrpcError>> + Send,
-{
-    async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
-        let input_value = serde_json::to_value(&input)
-            .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
-
-        let (e1, ctx, input_value) = E1::from_request(ctx, input_value).await?;
-        let (e2, ctx, input_value) = E2::from_request(ctx, input_value).await?;
-        let (e3, ctx, input_value) = E3::from_request(ctx, input_value).await?;
-        let (e4, _, _) = E4::from_request(ctx, input_value).await?;
-        self(e1, e2, e3, e4).await
-    }
-}
+// Generate implementations for 0-8 extractors
+impl_handler!();
+impl_handler!(E1);
+impl_handler!(E1, E2);
+impl_handler!(E1, E2, E3);
+impl_handler!(E1, E2, E3, E4);
+impl_handler!(E1, E2, E3, E4, E5);
+impl_handler!(E1, E2, E3, E4, E5, E6);
+impl_handler!(E1, E2, E3, E4, E5, E6, E7);
+impl_handler!(E1, E2, E3, E4, E5, E6, E7, E8);

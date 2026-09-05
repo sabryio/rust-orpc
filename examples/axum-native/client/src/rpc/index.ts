@@ -14,18 +14,18 @@ export const PlanetSchema = z.object({
 
 export type Planet = z.infer<typeof PlanetSchema>;
 
+export const FindPlanetInputSchema = z.object({
+  id: z.number().int()
+});
+
+export type FindPlanetInput = z.infer<typeof FindPlanetInputSchema>;
+
 export const CreatePlanetInputSchema = z.object({
   name: z.string(),
   description: z.string().optional()
 });
 
 export type CreatePlanetInput = z.infer<typeof CreatePlanetInputSchema>;
-
-export const FindPlanetInputSchema = z.object({
-  id: z.number().int()
-});
-
-export type FindPlanetInput = z.infer<typeof FindPlanetInputSchema>;
 
 export const contract = {
   ping: oc
@@ -39,7 +39,16 @@ export const contract = {
     findPlanet: oc
       .meta(openapi({ method: "POST", path: "/planet/find" }))
       .input(FindPlanetInputSchema)
-      .output(PlanetSchema),
+      .output(PlanetSchema)
+      .errors({
+        NOT_FOUND: {},
+        CONFLICT: {
+          data: z.object({ reason: z.string() })
+        },
+        DATABASE_ERROR: {
+          data: z.string()
+        }
+      }),
     listPlanets: oc
       .meta(openapi({ method: "POST", path: "/planet/list" }))
       .output(z.array(PlanetSchema)),

@@ -103,6 +103,13 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
     // Extract output type name from return type
     let output_type_name = extract_output_type_name(&func.sig.output);
 
+    // Extract error type name from Result<_, E> return type
+    let error_type_name = extract_error_type_name(&func.sig.output);
+    let error_type_name_token = match error_type_name {
+        Some(ref name) => quote! { Some(#name) },
+        None => quote! { None },
+    };
+
     // Extract input type name from first Json<T> parameter
     let input_type_name = extract_input_type_name(&func.sig.inputs);
 
@@ -177,6 +184,7 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
                 input_type_name: #input_type_name,
                 output_type_name: #output_type_name,
                 module_path: ::std::module_path!(),
+                error_type_name: #error_type_name_token,
             }
         }
 
@@ -203,6 +211,25 @@ fn extract_state_type(inputs: &syn::punctuated::Punctuated<syn::FnArg, Token![,]
                         if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
                             return Some(inner.clone());
                         }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+/// Extract the error type name from `-> Result<T, E>`.
+///
+/// Returns `Some("E")` if the return type is `Result<_, E>`, `None` otherwise.
+fn extract_error_type_name(return_type: &ReturnType) -> Option<String> {
+    if let ReturnType::Type(_, ty) = return_type {
+        if let Type::Path(type_path) = &**ty {
+            let last = type_path.path.segments.last()?;
+            if last.ident == "Result" {
+                if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                    // Result<T, E> — get the second type argument (E)
+                    if let Some(syn::GenericArgument::Type(error_ty)) = args.args.iter().nth(1) {
+                        return Some(type_to_string(error_ty));
                     }
                 }
             }

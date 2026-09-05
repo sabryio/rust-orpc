@@ -33,11 +33,13 @@
 //! }
 //! ```
 
+pub mod error_registry;
 pub mod metadata;
 pub mod registration;
 pub mod router;
 pub mod schema_registry;
 
+pub use error_registry::{ErrorRegistration, ErrorVariant};
 pub use metadata::HandlerMetadata;
 pub use registration::HandlerRegistration;
 pub use router::router;
@@ -46,7 +48,7 @@ pub use schema_registry::SchemaRegistration;
 // Re-export inventory so users don't need to depend on it directly
 pub use inventory;
 
-pub use orpc_macros::ZodTs;
+pub use orpc_macros::{OrpcErrors, ZodTs};
 
 // Re-export orpc-core and orpc-axum for convenience
 pub use orpc_axum::AxumRouter;
@@ -76,6 +78,7 @@ pub fn generate_contract() -> ContractBuilder {
             input_type_name: m.input_type_name,
             output_type_name: m.output_type_name,
             module_path: m.module_path,
+            error_type_name: m.error_type_name,
         })
         .collect();
 
@@ -118,5 +121,21 @@ pub fn generate_contract() -> ContractBuilder {
         visit(type_name, &registry, &mut visited, &mut ordered);
     }
 
-    ContractBuilder::new(handlers, ordered)
+    // Collect error registrations
+    let errors: Vec<orpc_codegen::ErrorInfo> = inventory::iter::<ErrorRegistration>
+        .into_iter()
+        .map(|e| orpc_codegen::ErrorInfo {
+            type_name: e.type_name,
+            variants: e
+                .variants
+                .iter()
+                .map(|v| orpc_codegen::ErrorVariantInfo {
+                    name: v.name,
+                    data_schema: v.data_schema,
+                })
+                .collect(),
+        })
+        .collect();
+
+    ContractBuilder::new(handlers, ordered).with_errors(errors)
 }

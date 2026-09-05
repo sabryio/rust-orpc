@@ -7,7 +7,11 @@ use crate::HandlerInfo;
 use std::collections::BTreeMap;
 
 /// Generate the `export const contract = { ... } as const` TypeScript block.
-pub fn generate_contract(handlers: &[HandlerInfo]) -> String {
+pub fn generate_contract(handlers: &[HandlerInfo], errors: &[crate::ErrorInfo]) -> String {
+    // Build error lookup: type_name → ErrorInfo
+    let error_map: std::collections::HashMap<&str, &crate::ErrorInfo> =
+        errors.iter().map(|e| (e.type_name, e)).collect();
+
     // Group handlers by their namespace (first path segment)
     let mut namespaces: BTreeMap<String, Vec<&HandlerInfo>> = BTreeMap::new();
 
@@ -22,13 +26,16 @@ pub fn generate_contract(handlers: &[HandlerInfo]) -> String {
         if namespace.is_empty() {
             // Root-level procedures
             for h in handlers {
-                lines.push(format!("  {},", generate_procedure_entry(h, 1)));
+                lines.push(format!("  {},", generate_procedure_entry(h, 1, &error_map)));
             }
         } else {
             // Namespaced procedures
             lines.push(format!("  {}: {{", namespace));
             for h in handlers {
-                lines.push(format!("    {},", generate_procedure_entry(h, 2)));
+                lines.push(format!(
+                    "    {},",
+                    generate_procedure_entry(h, 2, &error_map)
+                ));
             }
             lines.push("  },".to_string());
         }
@@ -42,7 +49,11 @@ pub fn generate_contract(handlers: &[HandlerInfo]) -> String {
 }
 
 /// Generate a single procedure entry in the contract object.
-fn generate_procedure_entry(handler: &HandlerInfo, _indent: usize) -> String {
+fn generate_procedure_entry(
+    handler: &HandlerInfo,
+    _indent: usize,
+    error_map: &std::collections::HashMap<&str, &crate::ErrorInfo>,
+) -> String {
     let key = handler_key(handler.name);
     let method = handler.method;
     let path = handler.path;
@@ -63,9 +74,39 @@ fn generate_procedure_entry(handler: &HandlerInfo, _indent: usize) -> String {
         }
     };
 
+    // Generate .errors({...}) if handler has an error type
+    let errors_block = if let Some(error_type_name) = handler.error_type_name {
+        if let Some(error_info) = error_map.get(error_type_name) {
+            let mut error_entries = Vec::new();
+            for variant in &error_info.variants {
+                let entry = if let Some(data_schema) = variant.data_schema {
+                    format!(
+                        "        {}: {{\n          data: {}\n        }}",
+                        variant.name, data_schema
+                    )
+                } else {
+                    format!("        {}: {{}}", variant.name)
+                };
+                error_entries.push(entry);
+            }
+            if !error_entries.is_empty() {
+                format!(
+                    "\n      .errors({{\n{}\n      }})",
+                    error_entries.join(",\n")
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     format!(
         r#"{key}: oc
-      .meta(openapi({{ method: "{method}", path: "{path}" }})){input_schema}{output_schema}"#
+      .meta(openapi({{ method: "{method}", path: "{path}" }})){input_schema}{output_schema}{errors_block}"#
     )
 }
 
@@ -133,6 +174,7 @@ mod tests {
                 input_type_name: "()",
                 output_type_name: "Vec<Planet>",
                 module_path: "handlers::planet",
+                error_type_name: None,
             },
             HandlerInfo {
                 name: "ping",
@@ -141,10 +183,11 @@ mod tests {
                 input_type_name: "()",
                 output_type_name: "String",
                 module_path: "handlers",
+                error_type_name: None,
             },
         ];
 
-        let output = generate_contract(&handlers);
+        let output = generate_contract(&handlers, &[]);
         assert!(output.contains("listPlanets"));
         assert!(output.contains("ping"));
         assert!(output.contains("/planet/list"));

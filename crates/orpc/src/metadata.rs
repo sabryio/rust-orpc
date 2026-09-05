@@ -21,6 +21,8 @@ pub struct HandlerMetadata {
     pub output_type_name: &'static str,
     /// Rust module path of the handler (e.g. `"axum_native::handlers::planet"`)
     pub module_path: &'static str,
+    /// Error type name extracted from `Result<T, E>` return type (if present)
+    pub error_type_name: Option<&'static str>,
 }
 
 inventory::collect!(HandlerMetadata);

@@ -1,6 +1,7 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, Json};
 use orpc::orpc;
 
+use crate::errors::AppError;
 use crate::models::{CreatePlanetInput, Db, FindPlanetInput, Planet};
 
 /// List all planets.
@@ -18,10 +19,8 @@ pub async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
 pub async fn find_planet(
     State(db): State<Db>,
     Json(input): Json<FindPlanetInput>,
-) -> Result<Json<Planet>, StatusCode> {
-    db.find(input.id)
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+) -> Result<Json<Planet>, AppError> {
+    db.find(input.id).map(Json).ok_or(AppError::NotFound)
 }
 
 /// Create a new planet.

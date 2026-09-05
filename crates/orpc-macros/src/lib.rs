@@ -4,6 +4,7 @@
 //! TypeScript-inspired object literal syntax.
 
 mod ast;
+mod error_derive;
 mod generate;
 mod openapi_macro;
 mod orpc_macro;
@@ -340,4 +341,62 @@ pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_derive(ZodTs, attributes(zod))]
 pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
     zod_ts::derive_zod_ts(input)
+}
+
+/// Derive macro for registering error enum variants with orpc.
+///
+/// Annotate error enums to automatically generate TypeScript `.errors({...})`
+/// entries in the contract. The macro registers variant names and data schemas
+/// via `inventory::submit!`, allowing `generate_contract()` to discover them.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use orpc::OrpcErrors;
+///
+/// #[derive(OrpcErrors)]
+/// pub enum AppError {
+///     NotFound,
+///     Conflict { reason: String },
+///     DatabaseError(String),
+/// }
+/// ```
+///
+/// When a handler returns `Result<T, AppError>`, the generated TypeScript
+/// contract includes:
+///
+/// ```typescript
+/// .errors({
+///   NOT_FOUND: {},
+///   CONFLICT: {
+///     data: z.object({ reason: z.string() })
+///   },
+///   DATABASE_ERROR: {
+///     data: z.string()
+///   }
+/// })
+/// ```
+///
+/// # Variant Types
+///
+/// - **Unit variants**: `NotFound` → `NOT_FOUND: {}`
+/// - **Struct variants**: `Conflict { reason: String }` → `CONFLICT: { data: z.object({...}) }`
+/// - **Tuple variants**: `DatabaseError(String)` → `DATABASE_ERROR: { data: z.string() }`
+///
+/// # Type Mapping
+///
+/// Rust types are mapped to Zod schemas:
+/// - `String` → `z.string()`
+/// - `i32`, `u32`, etc. → `z.number()`
+/// - `bool` → `z.boolean()`
+/// - `Option<T>` → `<T_schema>.optional()`
+/// - `Vec<T>` → `z.array(<T_schema>)`
+/// - Custom types → `<TypeName>Schema` (must have `#[derive(ZodTs)]`)
+#[proc_macro_derive(OrpcErrors)]
+pub fn derive_orpc_errors(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    match error_derive::expand_orpc_errors(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }

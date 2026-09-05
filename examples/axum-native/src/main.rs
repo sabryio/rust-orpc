@@ -26,6 +26,7 @@
 //!     .unwrap();
 //! ```
 
+mod errors;
 mod handlers;
 mod models;
 

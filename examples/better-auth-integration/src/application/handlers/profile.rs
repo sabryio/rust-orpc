@@ -1,19 +1,21 @@
-use crate::infrastructure::{
-    auth::extractors::{Session, SessionExt},
-    context::BaseContext,
-};
+use axum::{extract::State, Json};
 use better_auth::prelude::AuthUser;
-use orpc_core::{OrpcContext, OrpcError};
+use orpc::orpc;
 use serde_json::json;
 
+use crate::infrastructure::{
+    auth::extractors::{Session, SessionExt},
+    context::AppState,
+};
+
+#[orpc(method = "POST", path = "/profile")]
 pub async fn get_profile(
-    OrpcContext(_ctx): OrpcContext<BaseContext>,
+    State(_state): State<AppState>,
     session: Session,
-) -> Result<serde_json::Value, OrpcError> {
-    // Clean API: session.user_id(), session.user_email()
-    Ok(json!({
+) -> Json<serde_json::Value> {
+    Json(json!({
         "id": session.user_id(),
         "email": session.user_email(),
-        "name": session.current().user.name(),
+        "name": session.user.name(),
     }))
 }

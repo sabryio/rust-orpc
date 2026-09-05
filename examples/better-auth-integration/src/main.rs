@@ -1,7 +1,7 @@
 //! Better Auth + orpc Integration Example
 //!
-//! Refactored to demonstrate Clean Architecture and SOLID principles.
-//! Dependencies flow inward toward the domain layer.
+//! Demonstrates plain Axum handlers with `#[orpc]` annotations alongside
+//! Better Auth session management. No orpc-axum wrapper needed.
 
 mod application;
 mod domain;
@@ -9,10 +9,14 @@ mod infrastructure;
 mod server;
 
 use better_auth::{
-    integrations::axum::AxumIntegration,
     plugins::{EmailPasswordPlugin, SessionManagementPlugin},
     seaorm::SeaOrmStore,
     AuthConfig, BetterAuth,
+};
+use infrastructure::{
+    auth::schema::AppAuthSchema,
+    context::AppState,
+    repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
 };
 use std::sync::Arc;
 
@@ -20,9 +24,8 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Better Auth + orpc integration example...");
 
-    // 1. Initialize Infrastructure (DB & Auth)
-    let database_url = "sqlite::memory:";
-    let database = infrastructure::db::seaorm::connect(database_url).await?;
+    // 1. Database & auth setup
+    let database = infrastructure::db::seaorm::connect("sqlite::memory:").await?;
     infrastructure::auth::schema::run_app_migrations(&database).await?;
 
     let secret = "your-very-secure-secret-key-at-least-32-chars-long-for-production-use-only";
@@ -30,13 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .base_url("http://localhost:3000")
         .password_min_length(8);
 
-    let store = SeaOrmStore::<infrastructure::auth::schema::AppAuthSchema>::new(
-        config.clone(),
-        database.clone(),
-    );
+    let store = SeaOrmStore::<AppAuthSchema>::new(config.clone(), database);
 
     let auth = Arc::new(
-        BetterAuth::<infrastructure::auth::schema::AppAuthSchema>::new(config)
+        BetterAuth::<AppAuthSchema>::new(config)
             .store(store)
             .plugin(EmailPasswordPlugin::new().enable_signup(true))
             .plugin(SessionManagementPlugin::new())
@@ -44,10 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?,
     );
 
-    // 2. Build Routers
-    let orpc_router = application::router::build_orpc_router();
-    let auth_router = auth.clone().axum_router();
+    // 2. Build shared state — repo + auth in one place
+    let state = AppState {
+        planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
+        auth: auth.clone(),
+    };
 
-    // 3. Start Server (Composition of all layers)
-    server::axum::run_server(orpc_router, auth_router, auth).await
+    // 3. Start server
+    server::axum::run_server(state, auth).await
 }

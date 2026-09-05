@@ -116,7 +116,8 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
     // Extract state type from State<T> parameter — used in factory downcast
     let state_type = extract_state_type(&func.sig.inputs);
 
-    // Collect non-primitive input/output types for schema registration
+    // Collect non-primitive input/output types for schema registration.
+    // Emits z.unknown() fallback — overridden at codegen time if #[derive(ZodTs)] is present.
     let schema_registrations = generate_schema_registrations(&func.sig.inputs, &func.sig.output);
 
     let registration = if let Some(state_ty) = state_type {
@@ -191,9 +192,9 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
         // Register handler factory for auto-router construction
         #registration
 
-        // Register Zod schemas for TypeScript contract generation.
-        // Types must implement ZodTs (from zod-rs-ts crate).
-        // Add #[derive(ZodTs)] to your input/output types.
+        // Register z.unknown() fallback schemas for input/output types.
+        // If the type also has #[derive(ZodTs)], the real schema takes precedence
+        // at contract generation time — see generate_contract() deduplication logic.
         #schema_registrations
     }
 }
@@ -287,8 +288,9 @@ fn type_to_string(ty: &Type) -> String {
 /// Generate `inventory::submit! { SchemaRegistration { ... } }` blocks
 /// for non-primitive input and output types.
 ///
-/// Each unique non-primitive type gets one registration that calls
-/// `<T as ::zod_rs_ts::ZodTs>::zod_ts()` at runtime.
+/// Emits a `z.unknown()` fallback for every non-primitive `Json<T>` type.
+/// If the type also derives `ZodTs`, the real schema is registered separately
+/// by the `ZodTs` derive macro — `generate_contract()` prefers it over this fallback.
 fn generate_schema_registrations(
     inputs: &syn::punctuated::Punctuated<syn::FnArg, Token![,]>,
     output: &ReturnType,
@@ -296,10 +298,9 @@ fn generate_schema_registrations(
     let mut registrations = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Collect candidate types: Json<T> from input, Json<T> from output
+    // Collect candidate types: Json<T> from input params, Json<T> from output
     let mut candidate_types: Vec<Type> = Vec::new();
 
-    // From input parameters: Json<T>
     for input in inputs {
         if let syn::FnArg::Typed(pat_type) = input {
             if let Some(inner) = extract_inner_type(&pat_type.ty, "Json") {
@@ -308,7 +309,6 @@ fn generate_schema_registrations(
         }
     }
 
-    // From output: Json<T> or Result<Json<T>, _>
     if let ReturnType::Type(_, ty) = output {
         if let Some(inner) = extract_json_from_return(ty) {
             candidate_types.push(inner);
@@ -317,36 +317,45 @@ fn generate_schema_registrations(
 
     for ty in candidate_types {
         let type_str = type_to_string(&ty);
-        // Skip primitives and unit type
+
+        // Skip primitives and unit type — they map to inline Zod expressions, no schema needed
         if is_primitive_str(&type_str) {
             continue;
         }
-        // Skip Vec<T> wrapper — register the inner T
-        let (reg_type, reg_name) = if type_str.starts_with("Vec<") {
-            let inner_str = type_str.trim_start_matches("Vec<").trim_end_matches('>');
-            // Parse the inner type string back to a syn::Type
-            if let Ok(inner_ty) = syn::parse_str::<Type>(inner_str) {
-                let name = inner_str.to_string();
-                (inner_ty, name)
+
+        // Unwrap Vec<T> — register the inner type
+        let (reg_type_str, reg_type) = if type_str.starts_with("Vec<") {
+            let inner_str = type_str
+                .trim_start_matches("Vec<")
+                .trim_end_matches('>')
+                .to_string();
+            if let Ok(inner_ty) = syn::parse_str::<Type>(&inner_str) {
+                (inner_str, inner_ty)
             } else {
                 continue;
             }
         } else {
-            let name = type_str.clone();
-            (ty.clone(), name)
+            (type_str.clone(), ty.clone())
         };
 
-        if !seen.insert(reg_name.clone()) {
-            continue; // deduplicate
+        if !seen.insert(reg_type_str.clone()) {
+            continue; // deduplicate within this handler
         }
 
-        let type_name_str = reg_name.clone();
+        // Build the fallback schema comment: z.unknown() // add #[derive(ZodTs)] to TypeName
+        let fallback_schema = format!(
+            "z.unknown() /* add #[derive(ZodTs)] to {} for a real schema */",
+            reg_type_str
+        );
+        let type_name_str = reg_type_str.clone();
+        let _ = reg_type; // type parsed but not called — no ZodTs requirement
+
         registrations.push(quote! {
             ::orpc::inventory::submit! {
                 ::orpc::SchemaRegistration {
                     type_name: #type_name_str,
-                    zod_ts: <#reg_type>::zod_ts,
-                    dependent_types: <#reg_type>::dependent_types,
+                    zod_ts: || #fallback_schema.to_string(),
+                    dependent_types: || vec![],
                 }
             }
         });

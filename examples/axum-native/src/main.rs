@@ -30,6 +30,7 @@ mod errors;
 mod handlers;
 mod models;
 
+use axum::Router;
 use models::Db;
 
 #[tokio::main]
@@ -47,7 +48,10 @@ async fn main() {
     let db = Db::new();
 
     // ✨ Auto-built Axum router — no manual .route() calls needed
-    let app = orpc::router(db);
+    let router = orpc::router(db);
+
+    // Compose with Axum's native .nest()
+    let app = Router::new().nest("/api/v1", router);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3002")
         .await

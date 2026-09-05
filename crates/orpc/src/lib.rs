@@ -82,12 +82,27 @@ pub fn generate_contract() -> ContractBuilder {
         })
         .collect();
 
-    // Build a lookup map of all registered schemas: type_name → registration
-    let registry: std::collections::HashMap<&'static str, &SchemaRegistration> =
-        inventory::iter::<SchemaRegistration>
-            .into_iter()
-            .map(|s| (s.type_name, s))
-            .collect();
+    // Build a lookup map of all registered schemas: type_name → registration.
+    // When both a z.unknown() fallback (#[orpc]) and a real schema (#[derive(ZodTs)])
+    // exist for the same type, prefer the real schema.
+    let mut registry: std::collections::HashMap<&'static str, &SchemaRegistration> =
+        std::collections::HashMap::new();
+
+    for reg in inventory::iter::<SchemaRegistration>.into_iter() {
+        let is_fallback = (reg.zod_ts)().contains("z.unknown()");
+        match registry.get(reg.type_name) {
+            // No entry yet — insert regardless
+            None => {
+                registry.insert(reg.type_name, reg);
+            }
+            // Existing entry is a fallback and this one is real — upgrade
+            Some(existing) if (existing.zod_ts)().contains("z.unknown()") && !is_fallback => {
+                registry.insert(reg.type_name, reg);
+            }
+            // Existing entry is real — keep it, skip this one
+            _ => {}
+        }
+    }
 
     // Topological sort: emit dependency schemas before the types that use them
     let mut ordered: Vec<orpc_codegen::SchemaEntry> = Vec::new();

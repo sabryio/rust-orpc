@@ -1,16 +1,17 @@
-use crate::infrastructure::{auth::extractors::OptionalSession, context::BaseContext};
+use axum::{extract::State, Json};
 use better_auth::prelude::AuthUser;
-use orpc_core::{OrpcContext, OrpcError};
+use orpc::orpc;
 
-pub async fn ping(
-    OrpcContext(_ctx): OrpcContext<BaseContext>,
-    session: OptionalSession,
-) -> Result<String, OrpcError> {
-    match session.0.as_ref().0.as_ref() {
-        Some(current_session) => Ok(format!(
+use crate::infrastructure::{auth::extractors::OptionalSession, context::AppState};
+
+#[orpc(method = "POST", path = "/ping")]
+pub async fn ping(State(_state): State<AppState>, session: OptionalSession) -> Json<String> {
+    let msg = match session.0 {
+        Some(s) => format!(
             "pong (authenticated as {})",
-            current_session.user.email().unwrap_or("unknown")
-        )),
-        None => Ok("pong (anonymous)".to_string()),
-    }
+            s.user.email().unwrap_or("unknown")
+        ),
+        None => "pong (anonymous)".to_string(),
+    };
+    Json(msg)
 }

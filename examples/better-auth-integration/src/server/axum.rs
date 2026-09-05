@@ -1,32 +1,24 @@
-use crate::infrastructure::{
-    auth::schema::AppAuthSchema,
-    context::BaseContext,
-    repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
-};
+use crate::infrastructure::{auth::schema::AppAuthSchema, context::AppState};
 use axum::Router;
-use better_auth::BetterAuth;
-use orpc_axum::better_auth::BetterAuthExt;
+use better_auth::{integrations::axum::AxumIntegration, BetterAuth};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 pub async fn run_server(
-    orpc_router: impl orpc_axum::AxumRouter<BaseContext>,
-    auth_router: Router<Arc<BetterAuth<AppAuthSchema>>>,
+    state: AppState,
     auth: Arc<BetterAuth<AppAuthSchema>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // User-defined context — only their own fields
-    let base_ctx = BaseContext {
-        planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
-    };
+    // Resolve auth router's state before nesting — matches axum-react pattern
+    let auth_router = auth.clone().axum_router().with_state(auth);
 
-    // ✨ New API: just use .into_axum_router() + extractors in handlers
-    let orpc_with_auth = orpc_router
-        .into_axum_router(base_ctx)
-        .with_better_auth(auth.clone());
-
+    // Build the orpc handler router and nest alongside auth
     let app = Router::new()
-        .nest("/rpc", orpc_with_auth)
-        .nest("/api/auth", auth_router.with_state(auth))
+        .nest(
+            "/rpc",
+            crate::application::router::build_router(state.clone()),
+        )
+        .nest("/api/auth", auth_router)
+        .with_state(state)
         .layer(
             CorsLayer::new()
                 .allow_origin([

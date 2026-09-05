@@ -3,15 +3,16 @@ use crate::domain::models::planet::{
     Planet,
 };
 use async_trait::async_trait;
-use orpc_core::OrpcError;
+
+pub type RepoError = Box<dyn std::error::Error + Send + Sync>;
 
 #[async_trait]
 pub trait PlanetRepository: Send + Sync {
-    async fn list(&self) -> Result<Vec<Planet>, OrpcError>;
+    async fn list(&self) -> Result<Vec<Planet>, RepoError>;
     async fn list_paginated(
         &self,
         input: ListPlanetsPaginatedInput,
-    ) -> Result<ListPlanetsPaginatedOutput, OrpcError>;
-    async fn find(&self, input: FindPlanetInput) -> Result<Planet, OrpcError>;
-    async fn create(&self, input: CreatePlanetInput) -> Result<Planet, OrpcError>;
+    ) -> Result<ListPlanetsPaginatedOutput, RepoError>;
+    async fn find(&self, input: FindPlanetInput) -> Result<Planet, RepoError>;
+    async fn create(&self, input: CreatePlanetInput) -> Result<Planet, RepoError>;
 }

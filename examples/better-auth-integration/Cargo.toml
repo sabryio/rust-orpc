@@ -15,8 +15,7 @@ tower = "0.5"
 tower-http = { version = "0.7", features = ["cors"] }
 
 # orpc
-orpc-core = { path = "../../crates/orpc-core" }
-orpc-axum = { path = "../../crates/orpc-axum", features = ["better-auth"] }
+orpc = { path = "../../crates/orpc" }
 
 # Better Auth RS (using alpha version)
 better-auth = { version = "1.0.0-alpha.2", features = ["axum", "seaorm2"] }
@@ -27,3 +26,4 @@ chrono = "0.4"
 async-trait = "0.1.92"
 tokio-stream = "0.1.19"
 async-stream = "0.3"
+futures = "0.3"

@@ -112,6 +112,18 @@ pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
                             vec![#(#dep_types),*]
                         }
                     }
+
+                    // Register the real schema via inventory — takes precedence over
+                    // the z.unknown() fallback emitted by #[orpc] for this type.
+                    const _: () = {
+                        ::orpc::inventory::submit! {
+                            ::orpc::SchemaRegistration {
+                                type_name: #name_str,
+                                zod_ts: #name::zod_ts,
+                                dependent_types: #name::dependent_types,
+                            }
+                        }
+                    };
                 };
                 TokenStream::from(expanded)
             }
@@ -153,6 +165,18 @@ pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
                         vec![]
                     }
                 }
+
+                // Register the real schema via inventory — takes precedence over
+                // the z.unknown() fallback emitted by #[orpc] for this type.
+                const _: () = {
+                    ::orpc::inventory::submit! {
+                        ::orpc::SchemaRegistration {
+                            type_name: #name_str,
+                            zod_ts: #name::zod_ts,
+                            dependent_types: #name::dependent_types,
+                        }
+                    }
+                };
             };
             TokenStream::from(expanded)
         }

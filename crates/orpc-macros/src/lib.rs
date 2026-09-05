@@ -8,6 +8,7 @@ mod generate;
 mod openapi_macro;
 mod orpc_macro;
 mod parse;
+mod zod_ts;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
@@ -293,4 +294,50 @@ pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as orpc_macro::OrpcArgs);
     let func = parse_macro_input!(item as syn::ItemFn);
     orpc_macro::expand_orpc(args, func).into()
+}
+
+/// Derive macro that generates a `fn zod_ts() -> String` method on structs and enums.
+///
+/// The generated method returns a complete TypeScript block with a Zod schema
+/// and a `z.infer` type alias — ready to write to a `.ts` file.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use orpc::ZodTs;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Serialize, Deserialize, ZodTs)]
+/// pub struct Planet {
+///     pub id: i32,
+///     #[zod(min_length(1), max_length(100))]
+///     pub name: String,
+///     pub description: Option<String>,
+/// }
+///
+/// // Generated TypeScript:
+/// // import * as z from "zod";
+/// //
+/// // export const PlanetSchema = z.object({
+/// //   id: z.number().int(),
+/// //   name: z.string().min(1).max(100),
+/// //   description: z.string().optional(),
+/// // });
+/// //
+/// // export type Planet = z.infer<typeof PlanetSchema>;
+/// println!("{}", Planet::zod_ts());
+/// ```
+///
+/// ## Supported `#[zod(...)]` field attributes
+///
+/// **Strings:** `min_length(n)`, `max_length(n)`, `length(n)`, `email`, `url`,
+/// `regex("pattern")`, `starts_with("s")`, `ends_with("s")`, `includes("s")`
+///
+/// **Numbers:** `min(n)`, `max(n)`, `int`, `positive`, `negative`,
+/// `nonnegative`, `nonpositive`, `finite`
+///
+/// **Arrays (`Vec<T>`):** `min_length(n)`, `max_length(n)`, `length(n)`
+#[proc_macro_derive(ZodTs, attributes(zod))]
+pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
+    zod_ts::derive_zod_ts(input)
 }

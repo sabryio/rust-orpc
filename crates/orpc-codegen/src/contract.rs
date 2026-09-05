@@ -46,21 +46,21 @@ fn generate_procedure_entry(handler: &HandlerInfo, _indent: usize) -> String {
     let key = handler_key(handler.name);
     let method = handler.method;
     let path = handler.path;
-    let input_schema = if handler.input_type_name == "()" {
-        String::new()
-    } else {
-        format!(
-            "\n      .input({})",
-            crate::typescript::to_schema_name(handler.input_type_name)
-        )
+    let input_schema = {
+        let schema = crate::typescript::rust_type_to_ts_schema(handler.input_type_name);
+        if schema.is_empty() {
+            String::new()
+        } else {
+            format!("\n      .input({})", schema)
+        }
     };
-    let output_schema = if handler.output_type_name == "()" {
-        String::new()
-    } else {
-        format!(
-            "\n      .output({})",
-            crate::typescript::to_schema_name(handler.output_type_name)
-        )
+    let output_schema = {
+        let schema = crate::typescript::rust_type_to_ts_schema(handler.output_type_name);
+        if schema.is_empty() {
+            String::new()
+        } else {
+            format!("\n      .output({})", schema)
+        }
     };
 
     format!(

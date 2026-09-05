@@ -109,6 +109,9 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
     // Extract state type from State<T> parameter — used in factory downcast
     let state_type = extract_state_type(&func.sig.inputs);
 
+    // Collect non-primitive input/output types for schema registration
+    let schema_registrations = generate_schema_registrations(&func.sig.inputs, &func.sig.output);
+
     let registration = if let Some(state_ty) = state_type {
         // Handler extracts State<S> — downcast to S before building router
         quote! {
@@ -179,6 +182,11 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
 
         // Register handler factory for auto-router construction
         #registration
+
+        // Register Zod schemas for TypeScript contract generation.
+        // Types must implement ZodTs (from zod-rs-ts crate).
+        // Add #[derive(ZodTs)] to your input/output types.
+        #schema_registrations
     }
 }
 
@@ -247,4 +255,132 @@ fn extract_json_inner(type_str: &str) -> Option<String> {
 /// Render a `syn::Type` as a simplified string for metadata storage.
 fn type_to_string(ty: &Type) -> String {
     quote!(#ty).to_string().replace(' ', "")
+}
+
+/// Generate `inventory::submit! { SchemaRegistration { ... } }` blocks
+/// for non-primitive input and output types.
+///
+/// Each unique non-primitive type gets one registration that calls
+/// `<T as ::zod_rs_ts::ZodTs>::zod_ts()` at runtime.
+fn generate_schema_registrations(
+    inputs: &syn::punctuated::Punctuated<syn::FnArg, Token![,]>,
+    output: &ReturnType,
+) -> TokenStream {
+    let mut registrations = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // Collect candidate types: Json<T> from input, Json<T> from output
+    let mut candidate_types: Vec<Type> = Vec::new();
+
+    // From input parameters: Json<T>
+    for input in inputs {
+        if let syn::FnArg::Typed(pat_type) = input {
+            if let Some(inner) = extract_inner_type(&pat_type.ty, "Json") {
+                candidate_types.push(inner);
+            }
+        }
+    }
+
+    // From output: Json<T> or Result<Json<T>, _>
+    if let ReturnType::Type(_, ty) = output {
+        if let Some(inner) = extract_json_from_return(ty) {
+            candidate_types.push(inner);
+        }
+    }
+
+    for ty in candidate_types {
+        let type_str = type_to_string(&ty);
+        // Skip primitives and unit type
+        if is_primitive_str(&type_str) {
+            continue;
+        }
+        // Skip Vec<T> wrapper — register the inner T
+        let (reg_type, reg_name) = if type_str.starts_with("Vec<") {
+            let inner_str = type_str.trim_start_matches("Vec<").trim_end_matches('>');
+            // Parse the inner type string back to a syn::Type
+            if let Ok(inner_ty) = syn::parse_str::<Type>(inner_str) {
+                let name = inner_str.to_string();
+                (inner_ty, name)
+            } else {
+                continue;
+            }
+        } else {
+            let name = type_str.clone();
+            (ty.clone(), name)
+        };
+
+        if !seen.insert(reg_name.clone()) {
+            continue; // deduplicate
+        }
+
+        let type_name_str = reg_name.clone();
+        registrations.push(quote! {
+            ::orpc::inventory::submit! {
+                ::orpc::SchemaRegistration {
+                    type_name: #type_name_str,
+                    zod_ts: <#reg_type>::zod_ts,
+                    dependent_types: <#reg_type>::dependent_types,
+                }
+            }
+        });
+    }
+
+    quote! { #(#registrations)* }
+}
+
+/// Extract `T` from a `Wrapper<T>` type by wrapper name.
+fn extract_inner_type(ty: &Type, wrapper: &str) -> Option<Type> {
+    if let Type::Path(type_path) = ty {
+        let last = type_path.path.segments.last()?;
+        if last.ident == wrapper {
+            if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                    return Some(inner.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract the output type from `-> Json<T>` or `-> Result<Json<T>, E>`.
+fn extract_json_from_return(ty: &Type) -> Option<Type> {
+    // Direct: Json<T>
+    if let Some(inner) = extract_inner_type(ty, "Json") {
+        return Some(inner);
+    }
+    // Result<Json<T>, E>
+    if let Type::Path(type_path) = ty {
+        let last = type_path.path.segments.last()?;
+        if last.ident == "Result" {
+            if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
+                if let Some(syn::GenericArgument::Type(first_arg)) = args.args.first() {
+                    return extract_inner_type(first_arg, "Json");
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Returns true for Rust primitive type name strings.
+fn is_primitive_str(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "()" | "String"
+            | "str"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "usize"
+            | "isize"
+    )
 }

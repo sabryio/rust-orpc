@@ -1,20 +1,24 @@
+use orpc::ZodTs;
 use serde::{Deserialize, Serialize};
 
 /// A planet in the solar system.
-// TODO: add #[derive(ZodTs)] once zod_rs_ts dependency is confirmed
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `#[derive(ZodTs)]` generates TypeScript Zod schema automatically.
+/// The `#[orpc]` macro on handlers registers the schema via `inventory::submit!`
+/// — no manual call to `generate_contract()` config needed.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodTs)]
 pub struct Planet {
     pub id: i32,
     pub name: String,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, ZodTs)]
 pub struct FindPlanetInput {
     pub id: i32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, ZodTs)]
 pub struct CreatePlanetInput {
     pub name: String,
     pub description: Option<String>,
@@ -30,9 +34,21 @@ impl Db {
     pub fn new() -> Self {
         Self {
             planets: vec![
-                Planet { id: 1, name: "Mercury".into(), description: Some("Closest to the Sun".into()) },
-                Planet { id: 2, name: "Venus".into(),   description: Some("Brightest planet".into()) },
-                Planet { id: 3, name: "Earth".into(),   description: Some("Our home".into()) },
+                Planet {
+                    id: 1,
+                    name: "Mercury".into(),
+                    description: Some("Closest to the Sun".into()),
+                },
+                Planet {
+                    id: 2,
+                    name: "Venus".into(),
+                    description: Some("Brightest planet".into()),
+                },
+                Planet {
+                    id: 3,
+                    name: "Earth".into(),
+                    description: Some("Our home".into()),
+                },
             ],
         }
     }
@@ -47,7 +63,11 @@ impl Db {
 
     pub fn create(&mut self, input: CreatePlanetInput) -> Planet {
         let id = self.planets.len() as i32 + 1;
-        let planet = Planet { id, name: input.name, description: input.description };
+        let planet = Planet {
+            id,
+            name: input.name,
+            description: input.description,
+        };
         self.planets.push(planet.clone());
         planet
     }

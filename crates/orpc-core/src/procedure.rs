@@ -1,5 +1,6 @@
 //! Procedure definitions and type-erased dispatch.
 
+use crate::openapi::OpenApiMeta;
 use crate::route::RouteMetadata;
 use crate::OrpcError;
 use async_trait::async_trait;
@@ -45,11 +46,21 @@ pub struct Procedure<Ctx, In, Out> {
     pub(crate) handler: HandlerFn<Ctx, In, Out>,
     /// Route metadata declared via `.route()` — read by transport adapters.
     pub route: RouteMetadata,
+    /// OpenAPI metadata for richer routing information.
+    pub openapi_meta: OpenApiMeta,
 }
 
 impl<Ctx, In, Out> Procedure<Ctx, In, Out> {
-    pub(crate) fn new(handler: HandlerFn<Ctx, In, Out>, route: RouteMetadata) -> Self {
-        Self { handler, route }
+    pub(crate) fn new(
+        handler: HandlerFn<Ctx, In, Out>,
+        route: RouteMetadata,
+        openapi_meta: OpenApiMeta,
+    ) -> Self {
+        Self {
+            handler,
+            route,
+            openapi_meta,
+        }
     }
 }
 
@@ -58,6 +69,7 @@ impl<Ctx, In, Out> Clone for Procedure<Ctx, In, Out> {
         Self {
             handler: Arc::clone(&self.handler),
             route: self.route.clone(),
+            openapi_meta: self.openapi_meta.clone(),
         }
     }
 }

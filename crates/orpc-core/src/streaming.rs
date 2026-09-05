@@ -1,5 +1,6 @@
 //! Streaming procedure support for Server-Sent Events (SSE).
 
+use crate::openapi::OpenApiMeta;
 use crate::route::RouteMetadata;
 use crate::OrpcError;
 use async_trait::async_trait;
@@ -35,11 +36,21 @@ pub struct StreamingProcedure<Ctx, In, T> {
     pub(crate) handler: StreamHandlerFn<Ctx, In, T>,
     /// Route metadata declared via `.route()` — read by transport adapters.
     pub route: RouteMetadata,
+    /// OpenAPI metadata for richer routing information.
+    pub openapi_meta: OpenApiMeta,
 }
 
 impl<Ctx, In, T> StreamingProcedure<Ctx, In, T> {
-    pub(crate) fn new(handler: StreamHandlerFn<Ctx, In, T>, route: RouteMetadata) -> Self {
-        Self { handler, route }
+    pub(crate) fn new(
+        handler: StreamHandlerFn<Ctx, In, T>,
+        route: RouteMetadata,
+        openapi_meta: OpenApiMeta,
+    ) -> Self {
+        Self {
+            handler,
+            route,
+            openapi_meta,
+        }
     }
 }
 
@@ -48,6 +59,7 @@ impl<Ctx, In, T> Clone for StreamingProcedure<Ctx, In, T> {
         Self {
             handler: Arc::clone(&self.handler),
             route: self.route.clone(),
+            openapi_meta: self.openapi_meta.clone(),
         }
     }
 }

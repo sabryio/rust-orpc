@@ -24,9 +24,30 @@
 //!         Ok("pong".to_string())
 //!     });
 //! ```
+//!
+//! ## OpenAPI Metadata
+//!
+//! Use the `openapi!` macro for TypeScript-like metadata syntax:
+//!
+//! ```rust,ignore
+//! use orpc_core::{os, openapi};
+//!
+//! #[derive(Clone)]
+//! struct AppContext;
+//!
+//! let proc = os()
+//!     .context::<AppContext>()
+//!     .meta(openapi!{
+//!         method: "GET",
+//!         path: "/planets"
+//!     })
+//!     .output::<Vec<String>>()
+//!     .handler(|_ctx, _: ()| async { Ok(vec!["Earth".to_string()]) });
+//! ```
 
 mod builder;
 mod error;
+mod openapi;
 mod procedure;
 mod registry;
 mod route;
@@ -37,6 +58,7 @@ mod streaming;
 // Re-export public API
 pub use builder::{os, ProcedureBuilder, Routed, Unrouted};
 pub use error::{IntoOrpcError, OrpcError};
+pub use openapi::{openapi_builder, OpenApiMeta, OpenApiMetaBuilder};
 pub use procedure::{OutputKind, Procedure, ProcedureHandler};
 pub use registry::ProcedureRegistry;
 pub use route::{HttpMethod, RouteMetadata};
@@ -51,6 +73,7 @@ pub use streaming::{AsyncIterator, StreamingProcedure};
 ///
 /// ```rust
 /// use orpc_core::{os, Stream, HttpMethod};
+/// use tokio_stream::StreamExt;
 ///
 /// #[derive(Clone)]
 /// struct Ctx;
@@ -75,4 +98,4 @@ pub type Stream<T> = AsyncIterator<T>;
 pub use router_builder::{r, RouterBuilder};
 
 // Re-export procedural macro
-pub use orpc_macros::router;
+pub use orpc_macros::{openapi, router};

@@ -8,6 +8,7 @@
 //! - Passing authenticated user through orpc context
 //! - Protecting routes with authentication checks
 //! - Accessing user information in orpc handlers
+//! - **NEW**: Using the `openapi!` macro for TypeScript-like metadata syntax
 
 mod auth_schema;
 
@@ -26,7 +27,7 @@ use better_auth::{
     AuthConfig, BetterAuth,
 };
 use orpc_axum::AxumRouter;
-use orpc_core::{os, router, HttpMethod, OrpcError, Stream};
+use orpc_core::{openapi, os, router, HttpMethod, OrpcError, Stream};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tokio_stream::StreamExt;
@@ -230,12 +231,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup application context (without user - will be added per-request)
     let base_ctx = AppContext::new(Arc::new(database));
 
-    // Build orpc router
+    // Build orpc router with new openapi! macro syntax
     let orpc_router = router! {
-        // Public route - no authentication required
+        // Public route - using openapi! macro for metadata
         ping: os()
             .context::<AppContext>()
-            .route(HttpMethod::Post, "/ping")
+            .meta(openapi!{
+                method: "POST",
+                path: "/ping"
+            })
             .output::<String>()
             .handler(|ctx, _: ()| async move {
                 if let Some(user) = &ctx.current_user {
@@ -246,17 +250,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
 
         planet: {
-            // List all planets (public - no auth required)
+            // List all planets - demonstrating openapi! with GET method
             list: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/planet/list")
+                .meta(openapi!{
+                    method: "POST",
+                    path: "/planet/list"
+                })
                 .output::<Vec<Planet>>()
                 .handler(|ctx, _: ()| async move {
                     let planets = ctx.planets.read().await;
                     Ok(planets.clone())
                 }),
 
-            // Paginated planet list (public)
+            // Paginated planet list - mixing old .route() with new openapi!
             listPaginated: os()
                 .context::<AppContext>()
                 .route(HttpMethod::Post, "/planet/list-paginated")
@@ -281,10 +288,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(ListPlanetsPaginatedOutput { items, next_page_param })
                 }),
 
-            // Find planet by ID (public)
+            // Find planet by ID - using openapi! for cleaner syntax
             find: os()
                 .context::<AppContext>()
-                .route(HttpMethod::Post, "/planet/find")
+                .meta(openapi!{
+                    method: "POST",
+                    path: "/planet/find"
+                })
                 .input::<FindPlanetInput>()
                 .output::<Planet>()
                 .handler(|ctx, input: FindPlanetInput| async move {
@@ -296,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .ok_or_else(|| OrpcError::not_found(format!("Planet with id {} not found", input.id)))
                 }),
 
-            // Create a new planet (requires auth)
+            // Create a new planet (requires auth) - demonstrating prefix with openapi!
             create: os()
                 .context::<AppContext>()
                 .route(HttpMethod::Post, "/planet/create")

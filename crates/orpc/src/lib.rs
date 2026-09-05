@@ -79,6 +79,7 @@ pub fn generate_contract() -> ContractBuilder {
             output_type_name: m.output_type_name,
             module_path: m.module_path,
             error_type_name: m.error_type_name,
+            stream_event_type_name: m.stream_event_type_name,
         })
         .collect();
 

@@ -39,10 +39,11 @@ use syn::{
     Expr, ExprLit, ItemFn, Lit, MetaNameValue, Result, ReturnType, Token, Type,
 };
 
-/// Parsed arguments from `#[orpc(method = "...", path = "...")]`
+/// Parsed arguments from `#[orpc(method = "...", path = "...", stream_event = "...")]`
 pub struct OrpcArgs {
     pub method: String,
     pub path: String,
+    pub stream_event: Option<String>,
 }
 
 impl Parse for OrpcArgs {
@@ -51,6 +52,7 @@ impl Parse for OrpcArgs {
 
         let mut method = None;
         let mut path = None;
+        let mut stream_event = None;
 
         for pair in pairs {
             let key = pair
@@ -73,10 +75,11 @@ impl Parse for OrpcArgs {
             match key.as_str() {
                 "method" => method = Some(value.to_uppercase()),
                 "path" => path = Some(value),
+                "stream_event" => stream_event = Some(value),
                 other => {
                     return Err(syn::Error::new_spanned(
                         &pair.path,
-                        format!("unknown #[orpc] key `{other}` — expected `method` or `path`"),
+                        format!("unknown #[orpc] key `{other}` — expected `method`, `path`, or `stream_event`"),
                     ))
                 }
             }
@@ -89,6 +92,7 @@ impl Parse for OrpcArgs {
             path: path.ok_or_else(|| {
                 syn::Error::new(proc_macro2::Span::call_site(), "#[orpc] requires `path`")
             })?,
+            stream_event,
         })
     }
 }
@@ -106,6 +110,12 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
     // Extract error type name from Result<_, E> return type
     let error_type_name = extract_error_type_name(&func.sig.output);
     let error_type_name_token = match error_type_name {
+        Some(ref name) => quote! { Some(#name) },
+        None => quote! { None },
+    };
+
+    // Convert stream_event from args to token
+    let stream_event_token = match args.stream_event {
         Some(ref name) => quote! { Some(#name) },
         None => quote! { None },
     };
@@ -186,6 +196,7 @@ pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
                 output_type_name: #output_type_name,
                 module_path: ::std::module_path!(),
                 error_type_name: #error_type_name_token,
+                stream_event_type_name: #stream_event_token,
             }
         }
 

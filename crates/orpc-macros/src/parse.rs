@@ -2,6 +2,11 @@
 //!
 //! Implements syn's Parse trait to convert token streams into our domain AST
 //! (Clean Architecture: Ports layer — adapts external parsing to domain types).
+//!
+//! NOTE: This is part of the old declarative router! macro which is deprecated.
+//! Kept for backward compatibility. Use the new auto-discovery router!() macro instead.
+
+#![allow(dead_code)]
 
 use crate::ast::{RouterItem, RouterKey, RouterMacroInput};
 use syn::{

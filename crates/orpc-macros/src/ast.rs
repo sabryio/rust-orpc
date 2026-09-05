@@ -2,6 +2,11 @@
 //!
 //! These types represent the parsed structure of the macro input without
 //! any parsing or generation logic (Clean Architecture: Domain layer).
+//!
+//! NOTE: This is part of the old declarative router! macro which is deprecated.
+//! Kept for backward compatibility. Use the new auto-discovery router!() macro instead.
+
+#![allow(dead_code)]
 
 use std::fmt;
 use syn::{Expr, Ident, LitStr};

@@ -23,6 +23,8 @@ pub struct HandlerMetadata {
     pub module_path: &'static str,
     /// Error type name extracted from `Result<T, E>` return type (if present)
     pub error_type_name: Option<&'static str>,
+    /// Stream event type name for SSE endpoints (if specified with `stream_event` attribute)
+    pub stream_event_type_name: Option<&'static str>,
 }
 
 inventory::collect!(HandlerMetadata);

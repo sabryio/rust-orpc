@@ -66,7 +66,19 @@ fn generate_procedure_entry(
         }
     };
     let output_schema = {
-        let schema = crate::typescript::rust_type_to_ts_schema(handler.output_type_name);
+        // Use stream_event_type_name if available for Sse types
+        let schema = if handler.output_type_name.starts_with("Sse<") {
+            if let Some(stream_event_type) = handler.stream_event_type_name {
+                // Use the real stream event schema
+                format!("asyncIteratorObject({}Schema)", stream_event_type)
+            } else {
+                // Fallback to z.unknown()
+                crate::typescript::rust_type_to_ts_schema(handler.output_type_name)
+            }
+        } else {
+            crate::typescript::rust_type_to_ts_schema(handler.output_type_name)
+        };
+
         if schema.is_empty() {
             String::new()
         } else {
@@ -175,6 +187,7 @@ mod tests {
                 output_type_name: "Vec<Planet>",
                 module_path: "handlers::planet",
                 error_type_name: None,
+                stream_event_type_name: None,
             },
             HandlerInfo {
                 name: "ping",
@@ -184,6 +197,7 @@ mod tests {
                 output_type_name: "String",
                 module_path: "handlers",
                 error_type_name: None,
+                stream_event_type_name: None,
             },
         ];
 

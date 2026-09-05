@@ -6,6 +6,11 @@
 //! Keys in RouterItem::Procedure are no longer passed to .add() — the registry
 //! key is derived automatically from the procedure's route path.
 //! Keys in RouterItem::Nested are still used for .nest() grouping.
+//!
+//! NOTE: This is part of the old declarative router! macro which is deprecated.
+//! Kept for backward compatibility. Use the new auto-discovery router!() macro instead.
+
+#![allow(dead_code)]
 
 use crate::ast::{RouterItem, RouterKey, RouterMacroInput};
 use proc_macro2::TokenStream;

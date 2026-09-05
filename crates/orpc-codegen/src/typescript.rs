@@ -18,9 +18,14 @@ pub fn generate_imports() -> String {
 ///
 /// Each `SchemaEntry.zod_ts` starts with `import * as z from "zod";` — we strip
 /// that line from each block since `generate_imports()` already emits it once.
+///
+/// For fallback entries (those containing `z.unknown()`), we skip them entirely
+/// since they'll be handled by `generate_placeholder_schemas()` with proper
+/// schema constant declarations.
 pub fn generate_real_schemas(schemas: &[SchemaEntry]) -> String {
     schemas
         .iter()
+        .filter(|s| !s.zod_ts.contains("z.unknown()")) // Skip fallback entries
         .map(|s| {
             // Strip the redundant import line that ZodTs emits per-type
             s.zod_ts
@@ -82,15 +87,27 @@ pub fn generate_placeholder_schemas(handlers: &[HandlerInfo]) -> String {
 /// Strips Axum wrappers (`Json<T>`, `Result<Json<T>, E>`) and maps primitives
 /// to inline Zod expressions, custom types to `TSchema` references.
 ///
+/// Special handling for streaming responses: `Sse<...>` types return
+/// `asyncIteratorObject(...)` instead of a schema reference.
+///
 /// Examples:
 /// - `"Json<Planet>"` → `"PlanetSchema"`
 /// - `"Json<Vec<Planet>>"` → `"z.array(PlanetSchema)"`
 /// - `"Result<Json<Planet>,StatusCode>"` → `"PlanetSchema"`
+/// - `"Sse<impl Stream<...>>"` → `"asyncIteratorObject(z.object({ message: z.string(), count: z.number() }))"` (placeholder)
 /// - `"String"` → `"z.string()"`
 /// - `"()"` → `""` (no schema)
 pub fn rust_type_to_ts_schema(raw: &str) -> String {
     // Strip whitespace
     let raw = raw.replace(' ', "");
+
+    // Special case: Sse<...> streaming responses
+    // Use a generic placeholder - users should provide real event schemas
+    // via #[derive(ZodTs)] on their stream event type
+    if raw.starts_with("Sse<") {
+        return "asyncIteratorObject(z.unknown() /* TODO: add #[derive(ZodTs)] to your stream event type */)"
+            .to_string();
+    }
 
     // Unwrap Result<T, E> → take T
     let inner = if raw.starts_with("Result<") {
@@ -141,6 +158,8 @@ fn type_name_to_zod_ref(type_name: &str) -> String {
         "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
         | "usize" => "z.number().int()".to_string(),
         "f32" | "f64" => "z.number()".to_string(),
+        // serde_json::Value represents any valid JSON value
+        "serde_json::Value" | "Value" => "z.any()".to_string(),
         _ if type_name.starts_with("Vec<") && type_name.ends_with('>') => {
             let inner = &type_name[4..type_name.len() - 1];
             let inner_schema = type_name_to_zod_ref(inner);
@@ -171,16 +190,66 @@ pub fn to_schema_name(rust_type: &str) -> String {
 ///
 /// `"Vec<Planet>"` → `"Planet"`
 /// `"Option<Planet>"` → `"Planet"`
+/// `"Result<Json<Planet>, E>"` → `"Planet"`
+/// `"Json<Planet>"` → `"Planet"`
 /// `"models::Planet"` → `"Planet"`
 pub fn base_type_name(rust_type: &str) -> String {
-    let base = rust_type
-        .trim_start_matches("Vec<")
-        .trim_end_matches('>')
-        .trim_start_matches("Option<")
-        .trim_end_matches('>')
-        .trim();
+    let mut base = rust_type.trim();
 
+    // Strip Result<T, E> → extract T
+    if base.starts_with("Result<") {
+        if let Some(inner) = extract_first_generic_arg(base) {
+            base = inner;
+        }
+    }
+
+    // Strip Json<T> → extract T
+    if base.starts_with("Json<") && base.ends_with('>') {
+        base = &base[5..base.len() - 1];
+    }
+
+    // Strip Vec<T> → extract T
+    if base.starts_with("Vec<") && base.ends_with('>') {
+        base = &base[4..base.len() - 1];
+    }
+
+    // Strip Option<T> → extract T
+    if base.starts_with("Option<") && base.ends_with('>') {
+        base = &base[7..base.len() - 1];
+    }
+
+    // Strip module path: models::Planet → Planet
     base.rsplit("::").next().unwrap_or(base).to_string()
+}
+
+/// Extract the first generic argument from a type like "Result<T, E>" or "Option<T>".
+/// Returns the content of T, handling nested generics correctly.
+fn extract_first_generic_arg(type_str: &str) -> Option<&str> {
+    let start = type_str.find('<')? + 1;
+    let mut depth = 0;
+    let mut end = start;
+
+    for (i, ch) in type_str[start..].char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if end > start {
+        Some(type_str[start..end].trim())
+    } else {
+        None
+    }
 }
 
 /// Returns true for Rust primitive/std types that don't need a Zod schema.
@@ -202,6 +271,8 @@ pub fn is_primitive(type_name: &str) -> bool {
             | "bool"
             | "usize"
             | "isize"
+            | "serde_json::Value"
+            | "Json<serde_json::Value>"
     )
 }
 

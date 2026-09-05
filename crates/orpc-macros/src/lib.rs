@@ -6,6 +6,7 @@
 mod ast;
 mod generate;
 mod openapi_macro;
+mod orpc_macro;
 mod parse;
 
 use proc_macro::TokenStream;
@@ -263,4 +264,33 @@ pub fn openapi(input: TokenStream) -> TokenStream {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
+}
+
+/// Annotate a plain Axum handler to register its metadata with orpc.
+///
+/// This macro does **not** change the handler function — it remains a fully
+/// valid Axum handler. It adds an `inventory::submit!` call that registers
+/// the handler's route metadata globally, enabling `orpc::router()` and
+/// `orpc::generate_contract()` to discover it automatically.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc(method = "POST", path = "/planet/list")]
+/// async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
+///     Json(db.list().await)
+/// }
+/// ```
+///
+/// # Arguments
+///
+/// - `method` — HTTP method in any case (`"GET"`, `"post"`, etc.), normalized to uppercase
+/// - `path` — HTTP path string (e.g. `"/planet/list"`)
+///
+/// Both arguments are required.
+#[proc_macro_attribute]
+pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as orpc_macro::OrpcArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    orpc_macro::expand_orpc(args, func).into()
 }

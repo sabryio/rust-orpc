@@ -3,7 +3,10 @@ members = [
     "crates/orpc-core",
     "crates/orpc-axum",
     "crates/orpc-macros",
+    "crates/orpc-codegen",
+    "crates/orpc",
     "examples/axum-react/server",
     "examples/better-auth-integration",
+    "examples/axum-native",
 ]
 resolver = "3"

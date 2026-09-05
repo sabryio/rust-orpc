@@ -1,0 +1,92 @@
+//! # axum-native example
+//!
+//! Demonstrates `#[orpc]` on plain Axum handlers — no `router!` macro,
+//! no `os()` builder. Just annotate handlers and let orpc discover them.
+//!
+//! ## What this shows
+//!
+//! ```rust,ignore
+//! // Before (manual)
+//! let app = Router::new()
+//!     .route("/ping",          get(ping))
+//!     .route("/planet/list",   post(list_planets))
+//!     .route("/planet/find",   post(find_planet))
+//!     .route("/planet/create", post(create_planet))
+//!     .with_state(db);
+//!
+//! // After (auto-discovered)
+//! let app = orpc::router().with_state(db);
+//! ```
+//!
+//! And TypeScript contract is generated automatically:
+//!
+//! ```rust,ignore
+//! orpc::generate_contract()
+//!     .output("client/src/rpc/index.ts")
+//!     .unwrap();
+//! ```
+
+mod handlers;
+mod models;
+
+use models::Db;
+
+// Import handlers so inventory::submit! calls are linked in
+use handlers::{ping, planet};
+
+#[tokio::main]
+async fn main() {
+    // Generate TypeScript contract before starting the server
+    #[cfg(debug_assertions)]
+    {
+        println!("Generating TypeScript contract...");
+        orpc::generate_contract()
+            .output("client/src/rpc/index.ts")
+            .expect("contract generation failed");
+        println!("✅ Generated client/src/rpc/index.ts");
+    }
+
+    let db = Db::new();
+
+    // ✨ Auto-built Axum router — no manual .route() calls needed
+    // TODO (T012): orpc::router() will be wired once HandlerRegistration is implemented.
+    // For now, build manually using discovered metadata as a demonstration.
+    let app = build_router_from_metadata(db);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3002")
+        .await
+        .expect("failed to bind");
+
+    println!("🚀 axum-native example running on http://127.0.0.1:3002");
+    println!("📡 Handlers discovered via #[orpc]:");
+
+    for meta in orpc::inventory::iter::<orpc::HandlerMetadata>.into_iter() {
+        println!(
+            "   {} {} (from {})",
+            meta.method, meta.path, meta.module_path
+        );
+    }
+
+    axum::serve(listener, app).await.expect("server error");
+}
+
+/// Temporary: build Axum router by reading discovered metadata.
+///
+/// In the final implementation this is replaced by `orpc::router()`.
+fn build_router_from_metadata(_db: Db) -> axum::Router {
+    // Show discovered metadata
+    let count = orpc::inventory::iter::<orpc::HandlerMetadata>
+        .into_iter()
+        .count();
+    println!("\n📦 {count} handlers registered via #[orpc]");
+
+    // TODO (T012): full auto-router wiring
+    axum::Router::new()
+}
+
+// Force linking of handler modules so inventory::submit! calls execute
+#[allow(unused)]
+fn _ensure_handlers_linked() {
+    let _ = ping::ping as fn() -> _;
+    let _ = planet::list_planets as fn(_) -> _;
+}

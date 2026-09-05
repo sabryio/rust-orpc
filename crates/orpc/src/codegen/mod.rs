@@ -141,7 +141,7 @@ fn generate_missing_placeholders(
 
     for handler in handlers {
         for type_str in [handler.input_type_name, handler.output_type_name] {
-            if !typescript::is_primitive(type_str) {
+            if !typescript::is_primitive_type_name(type_str) {
                 for t in extract_base_types(type_str) {
                     if !real_schema_types.contains(t.as_str()) {
                         unique_types.insert(t);
@@ -191,65 +191,38 @@ fn extract_base_types(type_str: &str) -> Vec<String> {
 
     // Unwrap Result<T, E> → T
     let inner = if cleaned.starts_with("Result<") {
-        extract_first_type_arg(&cleaned).unwrap_or(&cleaned)
+        orpc_parse::types::extract_first_generic_arg_string(&cleaned)
+            .map(|s| s.to_string())
+            .unwrap_or(cleaned.clone())
     } else {
-        &cleaned
+        cleaned.clone()
     };
 
     // Unwrap Json<T> → T
     let inner = if inner.starts_with("Json<") && inner.ends_with('>') {
-        &inner[5..inner.len() - 1]
+        inner[5..inner.len() - 1].to_string()
     } else {
         inner
     };
 
     if inner.starts_with("Vec<") && inner.ends_with('>') {
         let elem = &inner[4..inner.len() - 1];
-        if !typescript::is_primitive(elem) {
+        if !typescript::is_primitive_type_name(elem) {
             vec![elem.to_string()]
         } else {
             vec![]
         }
     } else if inner.starts_with("Option<") && inner.ends_with('>') {
         let elem = &inner[7..inner.len() - 1];
-        if !typescript::is_primitive(elem) {
+        if !typescript::is_primitive_type_name(elem) {
             vec![elem.to_string()]
         } else {
             vec![]
         }
-    } else if !typescript::is_primitive(inner) && !inner.is_empty() && inner != "()" {
-        vec![inner.to_string()]
+    } else if !typescript::is_primitive_type_name(&inner) && !inner.is_empty() && inner != "()" {
+        vec![inner]
     } else {
         vec![]
-    }
-}
-
-/// Extract the first type argument from `"Wrapper<T, ...>"`.
-fn extract_first_type_arg(type_str: &str) -> Option<&str> {
-    let start = type_str.find('<')? + 1;
-    let mut depth = 0;
-    let mut end = start;
-
-    for (i, ch) in type_str[start..].char_indices() {
-        match ch {
-            '<' => depth += 1,
-            '>' if depth == 0 => {
-                end = start + i;
-                break;
-            }
-            '>' => depth -= 1,
-            ',' if depth == 0 => {
-                end = start + i;
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    if end > start {
-        Some(type_str[start..end].trim())
-    } else {
-        None
     }
 }
 

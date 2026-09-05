@@ -12,6 +12,9 @@ pub mod zod_ts;
 
 // Re-export the types that orpc-macros needs at the call site
 pub use error_derive::expand_orpc_errors;
-pub use orpc::{expand_orpc, OrpcArgs};
-pub use router::{expand_router, RouterArgs};
+pub use orpc::{OrpcArgs, expand_orpc};
+pub use router::{RouterArgs, expand_router};
 pub use zod_ts::derive_zod_ts;
+
+// Re-export runtime conversion utilities for use by the orpc runtime crate
+pub use zod_ts::{base_type_name, rust_type_to_ts_schema, to_schema_name};

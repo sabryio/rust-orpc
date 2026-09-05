@@ -447,3 +447,209 @@ fn ts_object_key(name: &str) -> String {
 fn escape_str(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
+
+// ---------------------------------------------------------------------------
+// Runtime type-to-zod conversion (for contract generation)
+// ---------------------------------------------------------------------------
+
+/// Convert a Rust type name string to a TypeScript Zod schema reference.
+///
+/// This is for runtime contract generation when you have type names as strings
+/// from handler metadata, not `syn::Type` ASTs. For compile-time AST-based
+/// conversion, use [`rust_type_to_zod`] instead.
+///
+/// # String-based parsing
+///
+/// This function uses string prefix/suffix matching because it operates on
+/// type name strings collected at link time via `inventory`. It handles:
+///
+/// - Wrapper unwrapping: `"Json<Planet>"` → `"PlanetSchema"`
+/// - Result unwrapping: `"Result<Json<Planet>, E>"` → `"PlanetSchema"`
+/// - Vec mapping: `"Json<Vec<Planet>>"` → `"z.array(PlanetSchema)"`
+/// - Primitive mapping: `"String"` → `"z.string()"`
+/// - SSE streams: `"Sse<...>"` → `"asyncIteratorObject(z.unknown())"`
+///
+/// # Examples
+///
+/// ```
+/// use orpc_parse::codegen::rust_type_to_ts_schema;
+///
+/// assert_eq!(rust_type_to_ts_schema("Json<Planet>"), "PlanetSchema");
+/// assert_eq!(rust_type_to_ts_schema("Json<Vec<Planet>>"), "z.array(PlanetSchema)");
+/// assert_eq!(rust_type_to_ts_schema("Result<Json<Planet>, E>"), "PlanetSchema");
+/// assert_eq!(rust_type_to_ts_schema("String"), "z.string()");
+/// assert_eq!(rust_type_to_ts_schema("()"), "");
+/// ```
+pub fn rust_type_to_ts_schema(raw: &str) -> String {
+    let raw = raw.replace(' ', "");
+
+    if raw.starts_with("Sse<") {
+        return "asyncIteratorObject(z.unknown() /* TODO: add #[derive(ZodTs)] to your stream event type */)".to_string();
+    }
+
+    // Unwrap Result<T, E> → T
+    let inner = if raw.starts_with("Result<") {
+        extract_first_generic_arg_string(&raw).unwrap_or(raw.clone())
+    } else {
+        raw.clone()
+    };
+
+    // Unwrap Json<T> → T
+    let inner = if inner.starts_with("Json<") && inner.ends_with('>') {
+        inner[5..inner.len() - 1].to_string()
+    } else {
+        inner
+    };
+
+    type_name_to_zod_ref(&inner)
+}
+
+/// Map a bare type name to its Zod schema reference.
+fn type_name_to_zod_ref(type_name: &str) -> String {
+    match type_name {
+        "()" | "" => String::new(),
+        "String" | "str" => "z.string()".to_string(),
+        "bool" => "z.boolean()".to_string(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => "z.number().int()".to_string(),
+        "f32" | "f64" => "z.number()".to_string(),
+        "serde_json::Value" | "Value" => "z.any()".to_string(),
+        _ if type_name.starts_with("Vec<") && type_name.ends_with('>') => {
+            let inner = &type_name[4..type_name.len() - 1];
+            format!("z.array({})", type_name_to_zod_ref(inner))
+        }
+        _ if type_name.starts_with("Option<") && type_name.ends_with('>') => {
+            let inner = &type_name[7..type_name.len() - 1];
+            format!("{}.optional()", type_name_to_zod_ref(inner))
+        }
+        _ => {
+            let base = type_name.rsplit("::").next().unwrap_or(type_name);
+            format!("{}Schema", base)
+        }
+    }
+}
+
+/// Extract the first generic argument from a type string.
+///
+/// `"Result<Json<Planet>, E>"` → `Some("Json<Planet>")`
+fn extract_first_generic_arg_string(type_str: &str) -> Option<String> {
+    let start = type_str.find('<')? + 1;
+    let mut depth = 0;
+    let mut end = start;
+
+    for (i, ch) in type_str[start..].char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if end > start {
+        Some(type_str[start..end].to_string())
+    } else {
+        None
+    }
+}
+
+/// Convert type name to schema constant name: `"Planet"` → `"PlanetSchema"`
+pub fn to_schema_name(rust_type: &str) -> String {
+    format!("{}Schema", base_type_name(rust_type))
+}
+
+/// Extract the base type name, stripping all wrappers.
+///
+/// `"Result<Json<Vec<Planet>>, E>"` → `"Planet"`
+pub fn base_type_name(rust_type: &str) -> String {
+    let mut base = rust_type.trim();
+
+    if base.starts_with("Result<")
+        && let Some(inner) = extract_first_generic_arg_string(base)
+    {
+        base = Box::leak(inner.into_boxed_str());
+    }
+    if base.starts_with("Json<") && base.ends_with('>') {
+        base = &base[5..base.len() - 1];
+    }
+    if base.starts_with("Vec<") && base.ends_with('>') {
+        base = &base[4..base.len() - 1];
+    }
+    if base.starts_with("Option<") && base.ends_with('>') {
+        base = &base[7..base.len() - 1];
+    }
+
+    base.rsplit("::").next().unwrap_or(base).to_string()
+}
+
+#[cfg(test)]
+mod runtime_conversion_tests {
+    use super::*;
+
+    #[test]
+    fn json_planet() {
+        assert_eq!(rust_type_to_ts_schema("Json<Planet>"), "PlanetSchema");
+    }
+
+    #[test]
+    fn json_vec_planet() {
+        assert_eq!(
+            rust_type_to_ts_schema("Json<Vec<Planet>>"),
+            "z.array(PlanetSchema)"
+        );
+    }
+
+    #[test]
+    fn result_json_planet() {
+        assert_eq!(
+            rust_type_to_ts_schema("Result<Json<Planet>, StatusCode>"),
+            "PlanetSchema"
+        );
+    }
+
+    #[test]
+    fn json_string() {
+        assert_eq!(rust_type_to_ts_schema("Json<String>"), "z.string()");
+    }
+
+    #[test]
+    fn unit_type() {
+        assert_eq!(rust_type_to_ts_schema("()"), "");
+    }
+
+    #[test]
+    fn serde_json_value() {
+        assert_eq!(rust_type_to_ts_schema("Json<serde_json::Value>"), "z.any()");
+    }
+
+    #[test]
+    fn schema_name_simple() {
+        assert_eq!(to_schema_name("Planet"), "PlanetSchema");
+    }
+
+    #[test]
+    fn schema_name_vec() {
+        assert_eq!(to_schema_name("Vec<Planet>"), "PlanetSchema");
+    }
+
+    #[test]
+    fn base_type_unwraps_wrappers() {
+        assert_eq!(base_type_name("Result<Json<Vec<Planet>>, E>"), "Planet");
+        assert_eq!(base_type_name("Json<Planet>"), "Planet");
+        assert_eq!(base_type_name("Vec<Planet>"), "Planet");
+        assert_eq!(base_type_name("Option<Planet>"), "Planet");
+    }
+
+    #[test]
+    fn base_type_strips_module_path() {
+        assert_eq!(base_type_name("models::Planet"), "Planet");
+        assert_eq!(base_type_name("crate::domain::Planet"), "Planet");
+    }
+}

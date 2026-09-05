@@ -158,6 +158,46 @@ pub fn is_primitive(ty: &Type) -> bool {
     }
 }
 
+/// Check if a type name string represents a Rust primitive or standard type.
+///
+/// This is for runtime use when you have a type name from metadata as a string,
+/// not a `syn::Type` AST. For compile-time AST checking, use [`is_primitive`] instead.
+///
+/// # Examples
+///
+/// ```
+/// use orpc_parse::types::is_primitive_type_name;
+///
+/// assert!(is_primitive_type_name("String"));
+/// assert!(is_primitive_type_name("i32"));
+/// assert!(is_primitive_type_name("()"));
+/// assert!(!is_primitive_type_name("Planet"));
+/// ```
+pub fn is_primitive_type_name(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "()" | "String"
+            | "str"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "usize"
+            | "isize"
+            | "serde_json::Value"
+            | "Json<serde_json::Value>"
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Innermost custom type
 // ---------------------------------------------------------------------------
@@ -199,6 +239,49 @@ fn last_ident_str(ty: &Type) -> Option<String> {
 fn span_of(ty: &Type) -> proc_macro2::Span {
     use syn::spanned::Spanned;
     ty.span()
+}
+
+/// Extract the first generic argument from a type string.
+///
+/// String-based parsing for runtime use. Returns the first type argument
+/// from generic type syntax, handling nested generics correctly.
+///
+/// # Examples
+///
+/// ```
+/// use orpc_parse::types::extract_first_generic_arg_string;
+///
+/// assert_eq!(extract_first_generic_arg_string("Result<T, E>"), Some("T".to_string()));
+/// assert_eq!(extract_first_generic_arg_string("Vec<Planet>"), Some("Planet".to_string()));
+/// assert_eq!(extract_first_generic_arg_string("Result<Json<Planet>, E>"), Some("Json<Planet>".to_string()));
+/// assert_eq!(extract_first_generic_arg_string("NoGenerics"), None);
+/// ```
+pub fn extract_first_generic_arg_string(type_str: &str) -> Option<String> {
+    let start = type_str.find('<')? + 1;
+    let mut depth = 0;
+    let mut end = start;
+
+    for (i, ch) in type_str[start..].char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                end = start + i;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if end > start {
+        Some(type_str[start..end].trim().to_string())
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

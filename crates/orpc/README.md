@@ -80,19 +80,22 @@ async fn main() {
 Annotate Axum handlers to register metadata. The function remains a valid Axum handler.
 
 **Required attributes:**
+
 - `method` — HTTP method (`"GET"`, `"POST"`, etc.)
 - `path` — Route path (e.g. `"/planet/list"`)
 
 **Optional attributes:**
+
 - `stream_event` — SSE event type name for streaming handlers
 
 **Supported handler signatures:**
+
 ```rust
 // State only
 #[orpc(method = "GET", path = "/ping")]
 async fn ping(State(s): State<AppState>) -> Json<String>
 
-// Input only  
+// Input only
 #[orpc(method = "POST", path = "/echo")]
 async fn echo(Json(input): Json<String>) -> Json<String>
 
@@ -240,11 +243,14 @@ Use with TypeScript RPC clients like [TanStack Query](https://tanstack.com/query
 orpc (runtime + facade)
   ├── orpc-macros (proc-macro bridge)
   │     └── orpc-parse (parsing + codegen)
+  │           └── Shared utilities used by both compile-time and runtime
   └── dependencies:
         ├── inventory (compile-time registration)
         ├── axum (web framework)
         └── serde (serialization)
 ```
+
+**Shared parsing utilities:** The `orpc` runtime crate reuses type-to-Zod conversion logic from `orpc-parse`, ensuring consistency between compile-time macro expansion and runtime contract generation. Both AST-based (for proc macros) and string-based (for runtime) parsing live in `orpc-parse` to eliminate duplication.
 
 ### Module Structure
 
@@ -308,18 +314,19 @@ tokio = { version = "1", features = ["full"] }
 
 ## Comparison with Alternatives
 
-| Feature | orpc | tRPC | gRPC | GraphQL |
-|---------|------|------|------|---------|
-| Type safety | ✅ Compile-time | ✅ Runtime | ✅ Compile-time | ✅ Runtime |
-| Codegen direction | Rust → TS | TS → TS | Proto → Both | Schema → Both |
-| HTTP/JSON native | ✅ | ✅ | ❌ (Protobuf) | ✅ |
-| Zero runtime overhead | ✅ | ❌ (Runtime reflection) | ❌ (Serialization) | ❌ (Resolvers) |
-| Streaming | ✅ SSE | ✅ | ✅ Bidirectional | ✅ Subscriptions |
-| Rust-first | ✅ | ❌ | ⚠️ | ⚠️ |
+| Feature               | orpc            | tRPC                    | gRPC               | GraphQL          |
+| --------------------- | --------------- | ----------------------- | ------------------ | ---------------- |
+| Type safety           | ✅ Compile-time | ✅ Runtime              | ✅ Compile-time    | ✅ Runtime       |
+| Codegen direction     | Rust → TS       | TS → TS                 | Proto → Both       | Schema → Both    |
+| HTTP/JSON native      | ✅              | ✅                      | ❌ (Protobuf)      | ✅               |
+| Zero runtime overhead | ✅              | ❌ (Runtime reflection) | ❌ (Serialization) | ❌ (Resolvers)   |
+| Streaming             | ✅ SSE          | ✅                      | ✅ Bidirectional   | ✅ Subscriptions |
+| Rust-first            | ✅              | ❌                      | ⚠️                 | ⚠️               |
 
 ## Examples
 
 See `examples/` directory:
+
 - `examples/axum-react/server` — Basic example
 - `examples/axum-react/better-auth-integration` — Auth integration
 

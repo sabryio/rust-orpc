@@ -1,8 +1,7 @@
 use crate::{
     domain::models::planet::*,
-    infrastructure::{auth::schema::AppAuthSchema, context::BaseContext},
+    infrastructure::{auth::extractors::Session, context::BaseContext},
 };
-use orpc_axum::BetterAuthSession;
 use orpc_core::{OrpcContext, OrpcError, OrpcJson};
 
 pub async fn list_planets(
@@ -25,10 +24,10 @@ pub async fn find_planet(
     ctx.planet_repo.find(input).await
 }
 
-/// Protected handler — BetterAuthSession extractor ensures authentication
+/// Protected handler — Session extractor ensures authentication
 pub async fn create_planet(
     OrpcContext(ctx): OrpcContext<BaseContext>,
-    BetterAuthSession(_session): BetterAuthSession<AppAuthSchema>,
+    _session: Session,
     OrpcJson(input): OrpcJson<CreatePlanetInput>,
 ) -> Result<Planet, OrpcError> {
     ctx.planet_repo.create(input).await

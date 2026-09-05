@@ -3,15 +3,13 @@ name = "orpc-macros"
 version = "0.1.0"
 edition = "2021"
 authors = ["rust-orpc contributors"]
-description = "Procedural macros for orpc - declarative router syntax"
+description = "Procedural macros for orpc — thin bridge over orpc-parse"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/rust-orpc"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = { version = "2.0", features = ["full", "parsing"] }
-quote = "1.0"
+orpc-parse = { path = "../orpc-parse", version = "0.1.0" }
+syn = { version = "2.0", features = ["full"] }
 proc-macro2 = "1.0"
-inventory = "0.3"

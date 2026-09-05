@@ -28,7 +28,6 @@ pub struct ListPlanetsPaginatedInput {
 #[derive(Debug, Serialize, ZodTs)]
 pub struct ListPlanetsPaginatedOutput {
     pub items: Vec<Planet>,
-    #[serde(rename = "nextPageParam")]
     pub next_page_param: Option<usize>,
 }
 

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/orpc-parse",
     "crates/orpc-macros",
     "crates/orpc",
     "examples/axum-react/server",

@@ -4,140 +4,131 @@
 [![Documentation](https://docs.rs/orpc-macros/badge.svg)](https://docs.rs/orpc-macros)
 [![License](https://img.shields.io/crates/l/orpc-macros.svg)](https://github.com/yourusername/rust-orpc)
 
-Procedural macros for [orpc](https://crates.io/crates/orpc-core) — declarative router syntax inspired by TypeScript oRPC.
+Procedural macro bridge for [orpc](https://crates.io/crates/orpc) — thin wrappers over [`orpc-parse`](https://crates.io/crates/orpc-parse).
 
 ## Overview
 
-This crate provides the `r!` macro for defining RPC routers with a clean, nested object syntax that mirrors TypeScript oRPC's plain object pattern. It's syntactic sugar over `RouterBuilder`, eliminating boilerplate while maintaining full type safety.
+This crate contains only proc-macro entry points. All parsing, validation, and code generation logic lives in `orpc-parse` where it can be tested with normal `#[test]` functions.
 
-## Features
+The entire implementation is a single `lib.rs` file with four proc macros that delegate to `orpc-parse`.
 
-- **Declarative syntax** — Define routers like TypeScript objects
-- **Zero runtime overhead** — Expands to `RouterBuilder` at compile time
-- **Type-safe** — Full compile-time type checking
-- **Flexible keys** — Supports both identifiers and string literals
-- **Deep nesting** — Arbitrary router hierarchy
-- **Optional trailing commas** — Write idiomatic Rust
+## Macros
+
+### `#[orpc]`
+
+Annotate Axum handlers to register metadata for contract generation and auto-routing. The function remains unchanged — it's still a valid Axum handler.
+
+```rust
+use axum::{extract::State, Json};
+use orpc::orpc;
+
+#[orpc(method = "POST", path = "/planet/list")]
+async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
+    Json(db.list().await)
+}
+```
+
+**Required attributes:**
+
+- `method` — HTTP method (`"GET"`, `"POST"`, etc.)
+- `path` — Route path (e.g. `"/planet/list"`)
+
+**Optional attributes:**
+
+- `stream_event` — SSE event type name for streaming handlers
+
+### `router!`
+
+Auto-discovery macro that builds an Axum `Router` from all `#[orpc]`-annotated handlers using the `inventory` crate.
+
+```rust
+use orpc::router;
+
+// All handlers, no state
+let app = router!();
+
+// With state
+let app = router!(db);
+
+// Module filtering
+let app = router!("handlers::planet");
+let app = router!(["handlers::planet", "api::v1"]);
+let app = router!("handlers::{planet,user}");  // brace expansion
+let app = router!("handlers::*");              // wildcard
+
+// Filtering + state (any order)
+let app = router!("handlers::planet", db);
+let app = router!(db, "handlers::planet");
+let app = router!(db, ["handlers::planet"]);
+```
+
+### `#[derive(ZodTs)]`
+
+Generate a `fn zod_ts() -> String` method that returns TypeScript Zod schemas. The generated schema is registered via `inventory` for contract generation.
+
+```rust
+use orpc::ZodTs;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, ZodTs)]
+pub struct Planet {
+    pub id: i32,
+    #[zod(min_length(1), max_length(100))]
+    pub name: String,
+    pub description: Option<String>,
+}
+```
+
+**Supported `#[zod(...)]` attributes:**
+
+- **Strings:** `min_length(n)`, `max_length(n)`, `length(n)`, `email`, `url`, `regex("pattern")`, `starts_with("s")`, `ends_with("s")`, `includes("s")`
+- **Numbers:** `min(n)`, `max(n)`, `int`, `positive`, `negative`, `nonnegative`, `nonpositive`, `finite`
+- **Arrays:** `min_length(n)`, `max_length(n)`, `length(n)`
+
+### `#[derive(OrpcErrors)]`
+
+Register error enum variants for TypeScript contract generation. Variant names are converted to `SCREAMING_SNAKE_CASE`.
+
+```rust
+use orpc::OrpcErrors;
+
+#[derive(OrpcErrors)]
+pub enum AppError {
+    NotFound,                           // → NOT_FOUND: {}
+    Conflict { reason: String },        // → CONFLICT: { data: z.object({...}) }
+    DatabaseError(String),              // → DATABASE_ERROR: { data: z.string() }
+}
+```
 
 ## Installation
 
-This crate is typically used via `orpc-core`, which re-exports the macro:
+This crate is typically used via the `orpc` facade crate:
 
 ```toml
 [dependencies]
-orpc-core = "0.1"
+orpc = "0.1"
 ```
 
-Or add it directly:
+Or add it directly (not recommended):
 
 ```toml
 [dependencies]
 orpc-macros = "0.1"
 ```
 
-## Usage
-
-```rust
-use orpc_core::{router, os, OrpcError};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone)]
-struct AppContext {
-    db: Database,
-}
-
-#[derive(Deserialize)]
-struct FindInput {
-    id: i32,
-}
-
-#[derive(Serialize)]
-struct Planet {
-    id: i32,
-    name: String,
-}
-
-let router = router! {
-    ping: os()
-        .context::<AppContext>()
-        .output::<String>()
-        .handler(|_ctx, _: ()| async { Ok("pong".to_string()) }),
-
-    planet: {
-        list: os()
-            .context::<AppContext>()
-            .output::<Vec<Planet>>()
-            .handler(|ctx, _: ()| async move {
-                Ok(ctx.db.list_planets().await)
-            }),
-
-        find: os()
-            .context::<AppContext>()
-            .input::<FindInput>()
-            .output::<Planet>()
-            .handler(|ctx, input| async move {
-                ctx.db.find_planet(input.id).await
-                    .ok_or_else(|| OrpcError::not_found("Planet not found"))
-            })
-    }
-};
-```
-
-### String Literal Keys
-
-Use string literals for keys with special characters:
-
-```rust
-router! {
-    ping: os()...,
-    "list-paginated": os()...,  // kebab-case
-    "users:create": os()...,    // colons
-}
-```
-
-### Comparison with Manual Builder
-
-The macro is syntactic sugar. These are equivalent:
-
-**Macro:**
-
-```rust
-router! {
-    ping: os()...,
-    planet: { list: os()... }
-}
-```
-
-**Manual:**
-
-```rust
-r()
-    .add("ping", os()...)
-    .nest("planet", r().add("list", os()...))
-```
-
 ## Architecture
 
-This crate follows Clean Architecture principles:
+```
+orpc-macros (proc-macro bridge, lib.rs only)
+     └── orpc-parse (all implementation, fully testable)
+           └── syn 2.0, quote, proc-macro2, inventory
+```
 
-- **Domain (`ast.rs`)** — Pure AST types (RouterKey, RouterItem, RouterMacroInput)
-- **Ports (`parse.rs`)** — Parser adapters implementing syn's Parse trait
-- **Adapters (`generate.rs`)** — Code generators producing TokenStreams
-- **Composition (`lib.rs`)** — Entry point wiring parser → generator
+**Why the split?**
 
-Benefits:
-
-- **Testability** — Domain types can be unit-tested without macro machinery
-- **Maintainability** — Parser and generator are isolated and independently changeable
-- **Extensibility** — Future features (context inference, validation) can be added to domain layer
-
-## Documentation
-
-For full API documentation and examples, see:
-
-- [docs.rs/orpc-macros](https://docs.rs/orpc-macros) — This crate
-- [docs.rs/orpc-core](https://docs.rs/orpc-core) — Core abstractions
-- [docs.rs/orpc-axum](https://docs.rs/orpc-axum) — Axum integration
+- Proc-macro crates can't have normal `#[test]` functions
+- All logic in `orpc-parse` can be unit-tested
+- `orpc-macros` is just thin `TokenStream` conversion wrappers
 
 ## License
 

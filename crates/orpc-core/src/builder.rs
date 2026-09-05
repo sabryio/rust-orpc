@@ -56,6 +56,17 @@ pub struct ProcedureBuilder<Ctx, HCtx, In, Out, R> {
     _phantom: PhantomData<(Ctx, HCtx, In, Out, R)>,
 }
 
+impl<Ctx, HCtx, In, Out, R> Clone for ProcedureBuilder<Ctx, HCtx, In, Out, R> {
+    fn clone(&self) -> Self {
+        Self {
+            route: self.route.clone(),
+            openapi_meta: self.openapi_meta.clone(),
+            middleware_stack: self.middleware_stack.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl ProcedureBuilder<(), (), (), (), Unrouted> {
     pub(crate) fn new() -> Self {
         Self {

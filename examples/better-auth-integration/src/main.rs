@@ -249,6 +249,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the context to AuthContext — the handler receives AuthContext and is
     // guaranteed to have `ctx.user`.
 
+    // Define once — base procedure with auth middleware already applied
+    let protected = os().context::<BaseContext>().use_middleware(require_auth);
+
     let orpc_router = router! {
         ping: os()
             .context::<BaseContext>()
@@ -311,9 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
 
             // Protected: requires authentication via orpc middleware
-            create: os()
-                .context::<BaseContext>()
-                .use_middleware(require_auth)
+            create: protected.clone()
                 .route(HttpMethod::Post, "/planet/create")
                 .input::<CreatePlanetInput>()
                 .output::<Planet>()
@@ -331,9 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
 
         // Protected: requires authentication via orpc middleware
-        profile: os()
-            .context::<BaseContext>()
-            .use_middleware(require_auth)
+        profile: protected.clone()
             .route(HttpMethod::Post, "/profile")
             .output::<serde_json::Value>()
             .handler(|ctx: AuthContext, _: ()| async move {

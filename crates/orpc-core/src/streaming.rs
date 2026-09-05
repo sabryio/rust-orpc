@@ -71,7 +71,12 @@ where
     In: serde::de::DeserializeOwned + Send + 'static,
     T: serde::Serialize + Send + 'static,
 {
-    async fn call(&self, ctx: Ctx, input: Value) -> Result<crate::OutputKind, OrpcError> {
+    async fn call(
+        &self,
+        ctx: Ctx,
+        input: Value,
+        _extensions: Option<&std::sync::Arc<dyn std::any::Any + Send + Sync>>,
+    ) -> Result<crate::OutputKind, OrpcError> {
         let typed_input: In = serde_json::from_value(input)
             .map_err(|e| OrpcError::bad_request(format!("Failed to deserialize input: {}", e)))?;
 

@@ -300,7 +300,7 @@ where
                     let hctx = middleware_stack(ctx).await?;
 
                     // 2. Call handler (extraction happens inside Handler::call)
-                    handler.call(hctx, input).await
+                    handler.call(hctx, input, None).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         } else {
@@ -317,7 +317,7 @@ where
                     std::mem::forget(ctx);
 
                     // Call handler (extraction happens inside Handler::call)
-                    handler.call(hctx, input).await
+                    handler.call(hctx, input, None).await
                 }) as Pin<Box<dyn Future<Output = Result<Out, OrpcError>> + Send>>
             })
         };
@@ -399,7 +399,7 @@ where
 
                         // 3. Run extractors
                         let (extractors, _, _) =
-                            Extractors::from_request(hctx, input_value).await?;
+                            Extractors::from_request(hctx, input_value, None).await?;
 
                         // 4. Call handler
                         let stream = handler(extractors).await?;
@@ -428,7 +428,7 @@ where
 
                         // 2. Run extractors
                         let (extractors, _, _) =
-                            Extractors::from_request(hctx, input_value).await?;
+                            Extractors::from_request(hctx, input_value, None).await?;
 
                         // 3. Call handler
                         let stream = handler(extractors).await?;

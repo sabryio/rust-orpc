@@ -1,29 +1,27 @@
 use crate::infrastructure::{
-    auth::{guard::AppContext, middleware::BaseContext, schema::AppAuthSchema},
+    auth::schema::AppAuthSchema,
+    context::BaseContext,
     repositories::in_memory_planet_repo::{sample_planets, InMemoryPlanetRepository},
 };
 use axum::Router;
 use better_auth::BetterAuth;
-use orpc_axum::better_auth::{BetterAuthContext, BetterAuthExt};
+use orpc_axum::better_auth::BetterAuthExt;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 pub async fn run_server(
-    orpc_router: impl orpc_axum::AxumRouter<AppContext>,
+    orpc_router: impl orpc_axum::AxumRouter<BaseContext>,
     auth_router: Router<Arc<BetterAuth<AppAuthSchema>>>,
     auth: Arc<BetterAuth<AppAuthSchema>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // User-defined context — only their own fields, no session boilerplate
-    let inner_ctx = BaseContext {
+    // User-defined context — only their own fields
+    let base_ctx = BaseContext {
         planet_repo: Arc::new(InMemoryPlanetRepository::new(sample_planets())),
     };
 
-    // BetterAuthContext wraps it and manages the session automatically
-    let base_ctx = BetterAuthContext::new(inner_ctx);
-
-    // ✨ Dream API: no build_context, no session_layer, no session field in BaseContext
+    // ✨ New API: just use .into_axum_router() + extractors in handlers
     let orpc_with_auth = orpc_router
-        .into_axum_router_with_better_auth(base_ctx)
+        .into_axum_router(base_ctx)
         .with_better_auth(auth.clone());
 
     let app = Router::new()

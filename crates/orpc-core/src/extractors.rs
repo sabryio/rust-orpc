@@ -12,7 +12,9 @@
 //! }
 //! ```
 
+use std::any::Any;
 use std::future::Future;
+use std::sync::Arc;
 
 use crate::OrpcError;
 use async_trait::async_trait;
@@ -24,13 +26,23 @@ use serde_json::Value;
 /// Similar to Axum's `FromRequest`, this allows handlers to use extractor
 /// pattern-matching syntax. Extractors consume parts of the request context
 /// and forward the remainder to the next extractor in the chain.
+///
+/// The `extensions` parameter allows transport-specific metadata (like Axum's
+/// `Extensions`) to be passed through without coupling orpc-core to any framework.
 #[async_trait]
 pub trait FromOrpcRequest<Ctx>: Sized + Send + Sync {
     /// Extract this type from the request context and input.
     ///
     /// Returns `(extracted_value, remaining_ctx, remaining_input)` to support
     /// chaining multiple extractors in a handler signature.
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError>;
+    ///
+    /// The `extensions` parameter is an optional type-erased container for
+    /// framework-specific request data (e.g., Axum Extensions).
+    async fn from_request(
+        ctx: Ctx,
+        input: Value,
+        extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<(Self, Ctx, Value), OrpcError>;
 }
 
 /// Extract the orpc context.
@@ -51,7 +63,11 @@ impl<Ctx> FromOrpcRequest<Ctx> for OrpcContext<Ctx>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
+    async fn from_request(
+        ctx: Ctx,
+        input: Value,
+        _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<(Self, Ctx, Value), OrpcError> {
         let extracted = OrpcContext(ctx.clone());
         Ok((extracted, ctx, input))
     }
@@ -76,7 +92,11 @@ where
     Ctx: Send + Sync + 'static,
     T: DeserializeOwned + Send + Sync + 'static,
 {
-    async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
+    async fn from_request(
+        ctx: Ctx,
+        input: Value,
+        _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<(Self, Ctx, Value), OrpcError> {
         let typed_input: T = serde_json::from_value(input.clone())
             .map_err(|e| OrpcError::bad_request(format!("Failed to deserialize input: {}", e)))?;
 
@@ -96,7 +116,11 @@ macro_rules! impl_from_orpc_request_tuple {
         where
             Ctx: Send + 'static,
         {
-            async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
+            async fn from_request(
+                ctx: Ctx,
+                input: Value,
+                _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+            ) -> Result<(Self, Ctx, Value), OrpcError> {
                 Ok(((), ctx, input))
             }
         }
@@ -111,20 +135,24 @@ macro_rules! impl_from_orpc_request_tuple {
             $($E: FromOrpcRequest<Ctx>,)+
         {
             #[allow(non_snake_case)]
-            async fn from_request(ctx: Ctx, input: Value) -> Result<(Self, Ctx, Value), OrpcError> {
-                impl_from_orpc_request_tuple!(@extract ctx, input => $($E),+);
+            async fn from_request(
+                ctx: Ctx,
+                input: Value,
+                extensions: Option<&Arc<dyn Any + Send + Sync>>,
+            ) -> Result<(Self, Ctx, Value), OrpcError> {
+                impl_from_orpc_request_tuple!(@extract ctx, input, extensions => $($E),+);
                 Ok((($($E,)+), ctx, input))
             }
         }
     };
 
     // Helper: extract tuple elements sequentially
-    (@extract $ctx:ident, $input:ident => $E1:ident) => {
-        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
+    (@extract $ctx:ident, $input:ident, $extensions:ident => $E1:ident) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input, $extensions).await?;
     };
-    (@extract $ctx:ident, $input:ident => $E1:ident, $($E:ident),+) => {
-        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
-        impl_from_orpc_request_tuple!(@extract $ctx, $input => $($E),+);
+    (@extract $ctx:ident, $input:ident, $extensions:ident => $E1:ident, $($E:ident),+) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input, $extensions).await?;
+        impl_from_orpc_request_tuple!(@extract $ctx, $input, $extensions => $($E),+);
     };
 }
 
@@ -157,7 +185,15 @@ impl_from_orpc_request_tuple!(E1, E2, E3, E4, E5, E6, E7, E8);
 #[async_trait]
 pub trait Handler<Ctx, In, Out, Extractors>: Send + Sync + 'static {
     /// Call the handler after extracting values from context and input.
-    async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError>;
+    ///
+    /// The `extensions` parameter allows framework-specific request metadata
+    /// to be passed to extractors.
+    async fn call(
+        &self,
+        ctx: Ctx,
+        input: In,
+        extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<Out, OrpcError>;
 }
 
 // Macro to generate Handler implementations for different arities
@@ -173,7 +209,12 @@ macro_rules! impl_handler {
             F: Fn() -> Fut + Send + Sync + 'static,
             Fut: Future<Output = Result<Out, OrpcError>> + Send,
         {
-            async fn call(&self, _ctx: Ctx, _input: In) -> Result<Out, OrpcError> {
+            async fn call(
+                &self,
+                _ctx: Ctx,
+                _input: In,
+                _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+            ) -> Result<Out, OrpcError> {
                 self().await
             }
         }
@@ -192,11 +233,16 @@ macro_rules! impl_handler {
             Fut: Future<Output = Result<Out, OrpcError>> + Send,
         {
             #[allow(non_snake_case)]
-            async fn call(&self, ctx: Ctx, input: In) -> Result<Out, OrpcError> {
+            async fn call(
+                &self,
+                ctx: Ctx,
+                input: In,
+                extensions: Option<&Arc<dyn Any + Send + Sync>>,
+            ) -> Result<Out, OrpcError> {
                 let input_value = serde_json::to_value(&input)
                     .map_err(|e| OrpcError::internal(format!("Failed to serialize input: {}", e)))?;
 
-                impl_handler!(@extract ctx, input_value => $($E),+);
+                impl_handler!(@extract ctx, input_value, extensions => $($E),+);
 
                 self($($E),+).await
             }
@@ -204,12 +250,12 @@ macro_rules! impl_handler {
     };
 
     // Helper: extract extractors sequentially
-    (@extract $ctx:ident, $input:ident => $E1:ident) => {
-        let ($E1, _, _) = $E1::from_request($ctx, $input).await?;
+    (@extract $ctx:ident, $input:ident, $extensions:ident => $E1:ident) => {
+        let ($E1, _, _) = $E1::from_request($ctx, $input, $extensions).await?;
     };
-    (@extract $ctx:ident, $input:ident => $E1:ident, $($E:ident),+) => {
-        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input).await?;
-        impl_handler!(@extract $ctx, $input => $($E),+);
+    (@extract $ctx:ident, $input:ident, $extensions:ident => $E1:ident, $($E:ident),+) => {
+        let ($E1, $ctx, $input) = $E1::from_request($ctx, $input, $extensions).await?;
+        impl_handler!(@extract $ctx, $input, $extensions => $($E),+);
     };
 }
 

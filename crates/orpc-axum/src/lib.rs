@@ -32,6 +32,25 @@
 //! }
 //! ```
 //!
+//! ## Axum Extension Extractors
+//!
+//! Extract data from Axum's request extensions (added by middleware):
+//!
+//! ```rust,no_run
+//! use orpc_axum::AxumExtension;
+//! use orpc_core::{OrpcContext, OrpcError};
+//!
+//! #[derive(Clone)]
+//! struct User { id: String }
+//!
+//! async fn get_profile(
+//!     OrpcContext(ctx): OrpcContext<AppContext>,
+//!     AxumExtension(user): AxumExtension<User>,
+//! ) -> Result<String, OrpcError> {
+//!     Ok(format!("Profile for user {}", user.id))
+//! }
+//! ```
+//!
 //! ## Per-request context enrichment (e.g. auth)
 //!
 //! Use `into_axum_router_with` when Axum middleware places per-request data
@@ -77,19 +96,31 @@
 //!
 //! ## Better-Auth integration
 //!
-//! Enable the `better-auth` feature and use `.with_better_auth()`:
+//! Enable the `better-auth` feature and use extractors:
 //!
 //! ```rust,ignore
-//! use orpc_axum::{AxumRouter, better_auth::BetterAuthExt};
+//! use orpc_axum::{AxumRouter, BetterAuthSession};
+//!
+//! async fn get_profile(
+//!     OrpcContext(ctx): OrpcContext<BaseContext>,
+//!     BetterAuthSession(session): BetterAuthSession<AppAuthSchema>,
+//! ) -> Result<Output, OrpcError> {
+//!     // session is guaranteed to exist (401 if not authenticated)
+//!     Ok(Output { email: session.user.email().to_string() })
+//! }
 //!
 //! let app = orpc_router
-//!     .into_axum_router_with(base_ctx, build_context)
+//!     .into_axum_router(base_ctx)
 //!     .with_better_auth(auth);
 //! ```
 
 #[cfg(feature = "better-auth")]
 pub mod better_auth;
 
+#[cfg(feature = "better-auth")]
+pub use better_auth::{BetterAuthExt, BetterAuthSession, OptionalBetterAuthSession};
+
+use async_trait::async_trait;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -101,10 +132,64 @@ use axum::{
     Router as AxumRouterType,
 };
 use futures::Stream;
-use orpc_core::{HttpMethod, OrpcError, OutputKind, ProcedureRegistry, Router};
+use orpc_core::{FromOrpcRequest, HttpMethod, OrpcError, OutputKind, ProcedureRegistry, Router};
 use std::{convert::Infallible, pin::Pin, sync::Arc, time::Duration};
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
+
+/// Extract a value from Axum's request extensions.
+///
+/// This allows orpc handlers to access data injected by Axum middleware:
+///
+/// ```rust,ignore
+/// use orpc_axum::AxumExtension;
+///
+/// #[derive(Clone)]
+/// struct User { id: String }
+///
+/// async fn handler(
+///     AxumExtension(user): AxumExtension<User>,
+/// ) -> Result<String, OrpcError> {
+///     Ok(format!("Hello, user {}", user.id))
+/// }
+/// ```
+///
+/// Returns `OrpcError::internal` if the extension is not present.
+pub struct AxumExtension<T>(pub T);
+
+#[async_trait]
+impl<Ctx, T> FromOrpcRequest<Ctx> for AxumExtension<T>
+where
+    Ctx: Send + Sync + 'static,
+    T: Clone + Send + Sync + 'static,
+{
+    async fn from_request(
+        ctx: Ctx,
+        input: serde_json::Value,
+        extensions: Option<&Arc<dyn std::any::Any + Send + Sync>>,
+    ) -> Result<(Self, Ctx, serde_json::Value), OrpcError> {
+        let extensions = extensions.ok_or_else(|| {
+            OrpcError::internal("Extensions not available (not using Axum transport?)")
+        })?;
+
+        // Downcast from Arc<dyn Any> to Arc<axum::http::Extensions>
+        let axum_extensions = extensions
+            .downcast_ref::<axum::http::Extensions>()
+            .ok_or_else(|| {
+                OrpcError::internal("Failed to downcast extensions to Axum Extensions")
+            })?;
+
+        // Extract T from Axum Extensions
+        let value = axum_extensions.get::<T>().cloned().ok_or_else(|| {
+            OrpcError::internal(format!(
+                "Extension type '{}' not found in request extensions",
+                std::any::type_name::<T>()
+            ))
+        })?;
+
+        Ok((AxumExtension(value), ctx, input))
+    }
+}
 
 /// Extension trait to convert orpc routers into Axum routers.
 pub trait AxumRouter<Ctx>: Router<Ctx>
@@ -155,41 +240,6 @@ where
     {
         build_axum_router(self, ctx, extractor)
     }
-
-    /// Converts this orpc router into an Axum router with automatic Better-Auth
-    /// session injection.
-    ///
-    /// Requires the context to be `BetterAuthContext<Schema, InnerCtx>`.
-    /// The schema type is inferred — no turbofish needed.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use orpc_axum::better_auth::{BetterAuthContext, BetterAuthExt};
-    ///
-    /// let base_ctx = BetterAuthContext::new(inner_ctx);
-    ///
-    /// let app = orpc_router
-    ///     .into_axum_router_with_better_auth(base_ctx) // Schema inferred!
-    ///     .with_better_auth(auth);
-    /// ```
-    #[cfg(feature = "better-auth")]
-    fn into_axum_router_with_better_auth(self, ctx: Ctx) -> AxumRouterType
-    where
-        Self: Sized,
-        Ctx: crate::better_auth::WithBetterAuth,
-    {
-        build_axum_router(self, ctx, |mut ctx, ext| {
-            use ::better_auth::integrations::axum::OptionalSession;
-
-            if let Some(session) = ext
-                .get::<Arc<OptionalSession<<Ctx as crate::better_auth::WithBetterAuth>::Schema>>>()
-            {
-                ctx.inject_session(Arc::clone(session));
-            }
-            ctx
-        })
-    }
 }
 
 // Blanket impl for any type that implements Router
@@ -232,7 +282,8 @@ where
                 let key = route_path_clone.clone();
                 let input = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
                 let ctx = extractor_clone((*state.0).clone(), &extensions);
-                async move { handle_procedure(registry, ctx, key, input).await }
+                let extensions = Arc::new(extensions);
+                async move { handle_procedure(registry, ctx, key, input, extensions).await }
             };
 
         let registry_clone2 = Arc::clone(&registry);
@@ -244,7 +295,10 @@ where
             let registry = Arc::clone(&registry_clone2);
             let key = route_path_clone2.clone();
             let ctx = extractor_clone2((*state.0).clone(), &extensions);
-            async move { handle_procedure(registry, ctx, key, serde_json::Value::Null).await }
+            let extensions = Arc::new(extensions);
+            async move {
+                handle_procedure(registry, ctx, key, serde_json::Value::Null, extensions).await
+            }
         };
 
         axum_router = match method {
@@ -271,11 +325,16 @@ async fn handle_procedure<Ctx>(
     ctx: Ctx,
     key: String,
     input: serde_json::Value,
+    extensions: Arc<axum::http::Extensions>,
 ) -> Result<Response, AxumError>
 where
     Ctx: Clone + Send + Sync + 'static,
 {
-    let result = registry.call(&key, ctx, input).await?;
+    // Convert Axum Extensions to type-erased format for orpc-core
+    let extensions_any: Arc<dyn std::any::Any + Send + Sync> = extensions;
+    let result = registry
+        .call(&key, ctx, input, Some(&extensions_any))
+        .await?;
 
     match result {
         OutputKind::Single(value) => Ok(Json(value).into_response()),

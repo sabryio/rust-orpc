@@ -1,12 +1,11 @@
-use crate::domain::models::planet::StreamEvent;
-use crate::infrastructure::auth::guard::AppContext;
+use crate::{domain::models::planet::StreamEvent, infrastructure::context::BaseContext};
 use async_stream::stream;
 use orpc_core::{OrpcContext, OrpcError};
 use std::time::Duration;
 use tokio_stream::{iter, Stream, StreamExt};
 
 pub async fn stream_events(
-    OrpcContext(_ctx): OrpcContext<AppContext>,
+    OrpcContext(_ctx): OrpcContext<BaseContext>,
 ) -> Result<impl Stream<Item = StreamEvent>, OrpcError> {
     let s = iter(0u32..)
         .throttle(Duration::from_secs(1))
@@ -19,7 +18,7 @@ pub async fn stream_events(
 }
 
 pub async fn stream_events_async(
-    OrpcContext(_ctx): OrpcContext<AppContext>,
+    OrpcContext(_ctx): OrpcContext<BaseContext>,
 ) -> Result<impl Stream<Item = StreamEvent>, OrpcError> {
     let s = stream! {
         for i in 0u32..15 {

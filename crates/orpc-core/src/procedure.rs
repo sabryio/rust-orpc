@@ -6,6 +6,7 @@ use crate::OrpcError;
 use async_trait::async_trait;
 use futures_core::Stream;
 use serde_json::Value;
+use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,7 +31,12 @@ impl std::fmt::Debug for OutputKind {
 /// Type-erased trait for runtime procedure dispatch.
 #[async_trait]
 pub trait ProcedureHandler<Ctx>: Send + Sync {
-    async fn call(&self, ctx: Ctx, input: Value) -> Result<OutputKind, OrpcError>;
+    async fn call(
+        &self,
+        ctx: Ctx,
+        input: Value,
+        extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<OutputKind, OrpcError>;
     fn route_metadata(&self) -> &RouteMetadata;
 }
 
@@ -81,7 +87,12 @@ where
     In: serde::de::DeserializeOwned + Send + 'static,
     Out: serde::Serialize + Send + 'static,
 {
-    async fn call(&self, ctx: Ctx, input: Value) -> Result<OutputKind, OrpcError> {
+    async fn call(
+        &self,
+        ctx: Ctx,
+        input: Value,
+        _extensions: Option<&Arc<dyn Any + Send + Sync>>,
+    ) -> Result<OutputKind, OrpcError> {
         let typed_input: In = serde_json::from_value(input)
             .map_err(|e| OrpcError::bad_request(format!("Failed to deserialize input: {}", e)))?;
 

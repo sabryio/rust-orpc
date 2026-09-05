@@ -1,9 +1,10 @@
 //! Procedure registry for runtime dispatch.
 
 use crate::route::RouteMetadata;
-use crate::{OrpcError, OutputKind,  ProcedureHandler};
+use crate::{OrpcError, OutputKind, ProcedureHandler};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A registered entry — handler + route metadata kept together.
 struct RegistryEntry<Ctx> {
@@ -52,13 +53,19 @@ where
     }
 
     /// Calls a procedure by key path with JSON input.
-    pub async fn call(&self, path: &str, ctx: Ctx, input: Value) -> Result<OutputKind, OrpcError> {
+    pub async fn call(
+        &self,
+        path: &str,
+        ctx: Ctx,
+        input: Value,
+        extensions: Option<&Arc<dyn std::any::Any + Send + Sync>>,
+    ) -> Result<OutputKind, OrpcError> {
         let entry = self
             .entries
             .get(path)
             .ok_or_else(|| OrpcError::not_found(format!("No procedure at path: {}", path)))?;
 
-        entry.handler.call(ctx, input).await
+        entry.handler.call(ctx, input, extensions).await
     }
 
     /// Checks if a procedure exists at the given key path.

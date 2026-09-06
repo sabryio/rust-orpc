@@ -68,6 +68,7 @@ pub fn generate_contract() -> ContractBuilder {
             method: m.method,
             path: m.path,
             input_type_name: m.input_type_name,
+            query_type_name: m.query_type_name,
             output_type_name: m.output_type_name,
             module_path: m.module_path,
             error_type_name: m.error_type_name,

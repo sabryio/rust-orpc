@@ -14,6 +14,7 @@ use crate::errors::{Error, Result};
 // ---------------------------------------------------------------------------
 
 pub const JSON: &str = "Json";
+pub const QUERY: &str = "Query";
 pub const RESULT: &str = "Result";
 pub const OPTION: &str = "Option";
 pub const VEC: &str = "Vec";
@@ -209,7 +210,7 @@ pub fn is_primitive_type_name(type_name: &str) -> bool {
 /// Returns `None` when the innermost resolved type is a primitive (no schema
 /// registration needed) or when the type cannot be unwrapped further.
 pub fn innermost_custom_type(ty: &Type) -> Option<&Type> {
-    for wrapper in &[RESULT, JSON, OPTION, VEC, STATE, SSE] {
+    for wrapper in &[RESULT, JSON, QUERY, OPTION, VEC, STATE, SSE] {
         if let Some(m) = try_extract_wrapper(ty, wrapper)
             && let Some(inner) = m.first_type()
         {

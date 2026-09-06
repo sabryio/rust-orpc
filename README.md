@@ -14,7 +14,7 @@ pub struct Planet {
     pub description: Option<String>,
 }
 
-#[orpc(method = "POST", path = "/planet/list")]
+#[orpc(method = "GET", path = "/planet/list")]
 pub async fn list_planets(State(db): State<AppState>) -> Result<Json<Vec<Planet>>, AppError> {
     db.planet_repo.list().await.map(Json).map_err(AppError::from)
 }
@@ -36,7 +36,7 @@ rorpc::generate_contract()
 export const contract = {
   planet: {
     listPlanets: oc
-      .meta(openapi({ method: "POST", path: "/planet/list" }))
+      .meta(openapi({ method: "GET", path: "/planet/list" }))
       .output(z.array(PlanetSchema))
       .errors({ NOT_FOUND: {}, INTERNAL: { data: z.string() } }),
   },
@@ -78,7 +78,7 @@ examples/axum-react/
 rorpc (runtime)
   └── rorpc-macros (proc-macro bridge)
         └── rorpc-parse (all parsing + codegen)
-              └── syn 2.0, quote, proc-macro2, inventory
+              └── syn 3.0, quote, proc-macro2, inventory
 ```
 
 `rorpc-parse` has no dependency on `rorpc` or `rorpc-macros`. It can be tested independently.
@@ -92,11 +92,18 @@ Annotates any valid Axum handler. The function is emitted unchanged plus two `in
 ```rust
 use rorpc::orpc;
 
-// Public endpoint
-#[orpc(method = "POST", path = "/planet/list")]
+// GET — no input, returns list
+#[orpc(method = "GET", path = "/planet/list")]
 pub async fn list_planets(State(s): State<AppState>) -> Result<Json<Vec<Planet>>, AppError>
 
-// Protected endpoint (custom extractor, returns 401 automatically)
+// GET — with query parameters (Query<T> extractor)
+#[orpc(method = "GET", path = "/planet/find")]
+pub async fn find_planet(
+    State(s): State<AppState>,
+    Query(params): Query<FindPlanetInput>,
+) -> Result<Json<Planet>, AppError>
+
+// POST — with JSON body (Json<T> extractor), protected endpoint
 #[orpc(method = "POST", path = "/planet/create")]
 pub async fn create_planet(
     State(s): State<AppState>,
@@ -104,10 +111,23 @@ pub async fn create_planet(
     Json(input): Json<CreatePlanetInput>,
 ) -> Result<Json<Planet>, AppError>
 
-// SSE streaming
-#[orpc(method = "GET", path = "/stream", stream_event = "StreamEvent")]
+// SSE streaming — stream_event takes a type path (no quotes)
+#[orpc(method = "GET", path = "/stream", stream_event = StreamEvent)]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>>
 ```
+
+**Supported HTTP methods:** GET, POST, PUT, PATCH, DELETE
+
+**Request body vs query parameters:**
+
+- **POST/PUT/PATCH:** Use `Json<T>` extractor → data sent as JSON request body
+- **GET:** Use `Query<T>` extractor → data sent as URL query parameters
+- Both render as `.input()` in the TypeScript contract
+
+**Important:** The oRPC client automatically handles the difference:
+
+- For GET: sends input as query string parameters
+- For POST/PUT/PATCH: sends input as JSON request body
 
 ### `router!`
 
@@ -247,8 +267,8 @@ cargo test -p rorpc-parse
 | Crate          | Key dependencies                                                                 |
 | -------------- | -------------------------------------------------------------------------------- |
 | `rorpc`        | `axum 0.8`, `inventory 0.3`, `serde 1.0`                                         |
-| `rorpc-macros` | `syn 2.0`, `proc-macro2 1.0`                                                     |
-| `rorpc-parse`  | `syn 2.0` (full + extra-traits), `quote 1.0`, `proc-macro2 1.0`, `inventory 0.3` |
+| `rorpc-macros` | `syn 3.0`, `proc-macro2 1.0`                                                     |
+| `rorpc-parse`  | `syn 3.0` (full + extra-traits), `quote 1.0`, `proc-macro2 1.0`, `inventory 0.3` |
 
 ## License
 

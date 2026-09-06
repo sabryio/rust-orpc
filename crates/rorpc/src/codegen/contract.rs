@@ -49,31 +49,49 @@ fn generate_procedure_entry(
     let method = handler.method;
     let path = handler.path;
 
+    // Use query_type_name for GET params (Query<T>), input_type_name for POST body (Json<T>)
+    // Both render as .input() in the TypeScript contract
     let input_schema = {
-        let schema = super::typescript::rust_type_to_ts_schema(handler.input_type_name);
-        if schema.is_empty() { String::new() } else { format!("\n      .input({})", schema) }
+        let type_name = if let Some(query_type) = handler.query_type_name {
+            query_type
+        } else {
+            handler.input_type_name
+        };
+        let schema = super::typescript::rust_type_to_ts_schema(type_name);
+        if schema.is_empty() {
+            String::new()
+        } else {
+            format!("\n      .input({})", schema)
+        }
     };
 
     let output_schema = {
-        let schema = if handler.output_type_name.starts_with("Sse<") {
-            match handler.stream_event_type_name {
-                Some(event_type) => format!("asyncIteratorObject({}Schema)", event_type),
-                None => super::typescript::rust_type_to_ts_schema(handler.output_type_name),
-            }
+        let schema = if let Some(event_type) = handler.stream_event_type_name {
+            // SSE streaming handler — output is an async iterator of the event type
+            format!("asyncIteratorObject({}Schema)", event_type)
         } else {
             super::typescript::rust_type_to_ts_schema(handler.output_type_name)
         };
-        if schema.is_empty() { String::new() } else { format!("\n      .output({})", schema) }
+        if schema.is_empty() {
+            String::new()
+        } else {
+            format!("\n      .output({})", schema)
+        }
     };
 
     let errors_block = if let Some(error_type_name) = handler.error_type_name {
         if let Some(error_info) = error_map.get(error_type_name) {
-            let entries: Vec<String> = error_info.variants.iter().map(|v| {
-                match v.data_schema {
-                    Some(schema) => format!("        {}: {{\n          data: {}\n        }}", v.name, schema),
+            let entries: Vec<String> = error_info
+                .variants
+                .iter()
+                .map(|v| match v.data_schema {
+                    Some(schema) => format!(
+                        "        {}: {{\n          data: {}\n        }}",
+                        v.name, schema
+                    ),
                     None => format!("        {}: {{}}", v.name),
-                }
-            }).collect();
+                })
+                .collect();
 
             if !entries.is_empty() {
                 format!("\n      .errors({{\n{}\n      }})", entries.join(",\n"))
@@ -96,7 +114,11 @@ fn generate_procedure_entry(
 /// `"/planet/list"` → `"planet"`, `"/ping"` → `""`
 fn extract_namespace(path: &str) -> String {
     let segments: Vec<&str> = path.trim_start_matches('/').splitn(3, '/').collect();
-    if segments.len() >= 2 { segments[0].to_string() } else { String::new() }
+    if segments.len() >= 2 {
+        segments[0].to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// `"list_planets"` → `"listPlanets"`
@@ -138,15 +160,25 @@ mod tests {
     fn contract_contains_handlers() {
         let handlers = vec![
             HandlerInfo {
-                name: "list_planets", method: "POST", path: "/planet/list",
-                input_type_name: "()", output_type_name: "Vec<Planet>",
-                module_path: "handlers::planet", error_type_name: None,
+                name: "list_planets",
+                method: "POST",
+                path: "/planet/list",
+                input_type_name: "()",
+                query_type_name: None,
+                output_type_name: "Vec<Planet>",
+                module_path: "handlers::planet",
+                error_type_name: None,
                 stream_event_type_name: None,
             },
             HandlerInfo {
-                name: "ping", method: "GET", path: "/ping",
-                input_type_name: "()", output_type_name: "String",
-                module_path: "handlers", error_type_name: None,
+                name: "ping",
+                method: "GET",
+                path: "/ping",
+                input_type_name: "()",
+                query_type_name: None,
+                output_type_name: "String",
+                module_path: "handlers",
+                error_type_name: None,
                 stream_event_type_name: None,
             },
         ];

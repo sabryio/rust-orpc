@@ -17,6 +17,7 @@ pub struct HandlerInfo {
     pub method: &'static str,
     pub path: &'static str,
     pub input_type_name: &'static str,
+    pub query_type_name: Option<&'static str>,
     pub output_type_name: &'static str,
     pub module_path: &'static str,
     pub error_type_name: Option<&'static str>,
@@ -140,7 +141,11 @@ fn generate_missing_placeholders(
     let mut unique_types: BTreeSet<String> = BTreeSet::new();
 
     for handler in handlers {
-        for type_str in [handler.input_type_name, handler.output_type_name] {
+        let mut type_names = vec![handler.input_type_name, handler.output_type_name];
+        if let Some(query_type) = handler.query_type_name {
+            type_names.push(query_type);
+        }
+        for type_str in type_names {
             if !typescript::is_primitive_type_name(type_str) {
                 for t in extract_base_types(type_str) {
                     if !real_schema_types.contains(t.as_str()) {
@@ -236,6 +241,7 @@ mod tests {
             method,
             path,
             input_type_name: "()",
+            query_type_name: None,
             output_type_name: "String",
             module_path: "test::handlers",
             error_type_name: None,

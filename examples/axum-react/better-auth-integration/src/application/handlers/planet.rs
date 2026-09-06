@@ -1,4 +1,7 @@
-use axum::{extract::State, Json};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use rorpc::orpc;
 
 use crate::{
@@ -7,33 +10,33 @@ use crate::{
     infrastructure::{auth::extractors::Session, context::AppState},
 };
 
-#[orpc(method = "POST", path = "/planet/list")]
+#[orpc(method = "GET", path = "/planet/list")]
 pub async fn list_planets(State(state): State<AppState>) -> Result<Json<Vec<Planet>>, AppError> {
     state
         .planet_repo
         .list()
         .await
         .map(Json)
-        .map_err(|e| AppError::Internal(e.to_string()))
+        .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
 
-#[orpc(method = "POST", path = "/planet/list-paginated")]
+#[orpc(method = "GET", path = "/planet/list-paginated")]
 pub async fn list_planets_paginated(
     State(state): State<AppState>,
-    Json(input): Json<ListPlanetsPaginatedInput>,
+    Query(input): Query<ListPlanetsPaginatedInput>,
 ) -> Result<Json<ListPlanetsPaginatedOutput>, AppError> {
     state
         .planet_repo
         .list_paginated(input)
         .await
         .map(Json)
-        .map_err(|e| AppError::Internal(e.to_string()))
+        .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
 
-#[orpc(method = "POST", path = "/planet/find")]
+#[orpc(method = "GET", path = "/planet/find")]
 pub async fn find_planet(
     State(state): State<AppState>,
-    Json(input): Json<FindPlanetInput>,
+    Query(input): Query<FindPlanetInput>,
 ) -> Result<Json<Planet>, AppError> {
     state
         .planet_repo
@@ -55,5 +58,5 @@ pub async fn create_planet(
         .create(input)
         .await
         .map(Json)
-        .map_err(|e| AppError::Internal(e.to_string()))
+        .map_err(|e| AppError::Internal { msg: e.to_string() })
 }

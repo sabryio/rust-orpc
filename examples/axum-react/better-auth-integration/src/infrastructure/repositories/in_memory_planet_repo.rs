@@ -98,5 +98,40 @@ pub fn sample_planets() -> Vec<Planet> {
             name: "Jupiter".into(),
             description: Some("The largest planet".into()),
         },
+        Planet {
+            id: 6,
+            name: "Saturn".into(),
+            description: Some("The ringed planet".into()),
+        },
+        Planet {
+            id: 7,
+            name: "Uranus".into(),
+            description: Some("The ice giant that rotates on its side".into()),
+        },
+        Planet {
+            id: 8,
+            name: "Neptune".into(),
+            description: Some("The windiest planet".into()),
+        },
+        Planet {
+            id: 9,
+            name: "Pluto".into(),
+            description: Some("The dwarf planet at the edge of the solar system".into()),
+        },
+        Planet {
+            id: 10,
+            name: "Ceres".into(),
+            description: Some("The largest object in the asteroid belt".into()),
+        },
+        Planet {
+            id: 11,
+            name: "Eris".into(),
+            description: Some("The most massive known dwarf planet".into()),
+        },
+        Planet {
+            id: 12,
+            name: "Makemake".into(),
+            description: Some("A dwarf planet in the Kuiper belt".into()),
+        },
     ]
 }

@@ -8,7 +8,7 @@ use crate::infrastructure::{
     context::AppState,
 };
 
-#[orpc(method = "POST", path = "/profile")]
+#[orpc(method = "GET", path = "/profile")]
 pub async fn get_profile(
     State(_state): State<AppState>,
     session: Session,

@@ -4,7 +4,7 @@ use rorpc::orpc;
 
 use crate::infrastructure::{auth::extractors::OptionalSession, context::AppState};
 
-#[orpc(method = "POST", path = "/ping")]
+#[orpc(method = "GET", path = "/ping")]
 pub async fn ping(State(_state): State<AppState>, session: OptionalSession) -> Json<String> {
     let msg = match session.0 {
         Some(s) => format!(

@@ -15,8 +15,10 @@ pub struct HandlerMetadata {
     pub method: &'static str,
     /// HTTP path (e.g. `"/planet/list"`)
     pub path: &'static str,
-    /// Fully qualified Rust type name of the input type
+    /// Fully qualified Rust type name of the input type (from Json<T>)
     pub input_type_name: &'static str,
+    /// Fully qualified Rust type name of the query type (from Query<T>)
+    pub query_type_name: Option<&'static str>,
     /// Fully qualified Rust type name of the output type
     pub output_type_name: &'static str,
     /// Rust module path of the handler (e.g. `"axum_native::handlers::planet"`)

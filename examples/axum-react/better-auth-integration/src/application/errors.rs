@@ -9,9 +9,7 @@ use serde_json::json;
 #[derive(Debug, OrpcError)]
 pub enum AppError {
     NotFound,
-    BadRequest { reason: String },
-    Internal(String),
-    Unauthorized,
+    Internal { msg: String },
 }
 
 impl IntoResponse for AppError {
@@ -22,18 +20,10 @@ impl IntoResponse for AppError {
                 "NOT_FOUND",
                 "Resource not found".into(),
             ),
-            AppError::BadRequest { reason } => {
-                (StatusCode::BAD_REQUEST, "BAD_REQUEST", reason.clone())
-            }
-            AppError::Internal(msg) => (
+            AppError::Internal { msg } => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 msg.clone(),
-            ),
-            AppError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "UNAUTHORIZED",
-                "Authentication required".into(),
             ),
         };
         (status, Json(json!({ "code": code, "message": message }))).into_response()
@@ -44,9 +34,7 @@ impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::NotFound => write!(f, "Not found"),
-            AppError::BadRequest { reason } => write!(f, "Bad request: {reason}"),
-            AppError::Internal(msg) => write!(f, "Internal error: {msg}"),
-            AppError::Unauthorized => write!(f, "Unauthorized"),
+            AppError::Internal{ msg } => write!(f, "Internal error: {msg}"),
         }
     }
 }

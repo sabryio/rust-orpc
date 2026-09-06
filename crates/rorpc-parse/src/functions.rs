@@ -9,7 +9,7 @@ use syn::{FnArg, ItemFn, ReturnType, Type, spanned::Spanned};
 
 use crate::{
     errors::{Error, Result},
-    types::{JSON, RESULT, SSE, STATE, try_extract_wrapper},
+    types::{JSON, QUERY, RESULT, SSE, STATE, try_extract_wrapper},
 };
 
 // ---------------------------------------------------------------------------
@@ -30,6 +30,8 @@ pub struct HandlerSignature {
     pub state_type: Option<Type>,
     /// The `T` in a `Json<T>` parameter, if present.
     pub input_type: Option<Type>,
+    /// The `T` in a `Query<T>` parameter, if present.
+    pub query_type: Option<Type>,
     /// The resolved output type:
     /// - `Json<T>` return → `T`
     /// - `Result<Json<T>, E>` return → `T`
@@ -51,7 +53,7 @@ pub struct HandlerSignature {
 ///
 /// Validates:
 /// - The return type is `Json<T>` or `Result<Json<T>, E>` (not a bare type)
-/// - Collects `State<S>` and `Json<T>` parameters when present
+/// - Collects `State<S>`, `Json<T>`, and `Query<T>` parameters when present
 ///
 /// Handlers that return neither `Json<T>` nor `Result<Json<T>, E>` are
 /// rejected with an error pointing at the return type token.
@@ -63,12 +65,14 @@ pub fn extract_handler_signature(func: &ItemFn) -> Result<HandlerSignature> {
     let (output_type, error_type, is_streaming) = extract_return_types(&func.sig.output, &fn_name)?;
     let state_type = extract_state_param(&func.sig.inputs);
     let input_type = extract_json_param(&func.sig.inputs);
+    let query_type = extract_query_param(&func.sig.inputs);
 
     Ok(HandlerSignature {
         fn_name,
         fn_span,
         state_type,
         input_type,
+        query_type,
         output_type,
         error_type,
         is_streaming,
@@ -165,6 +169,20 @@ fn extract_json_param(inputs: &syn::punctuated::Punctuated<FnArg, syn::Token![,]
     for arg in inputs {
         if let FnArg::Typed(pat_type) = arg
             && let Some(m) = try_extract_wrapper(&pat_type.ty, JSON)
+        {
+            return m.first_type().cloned();
+        }
+    }
+    None
+}
+
+/// Find the first `Query<T>` parameter and return the inner `T`.
+fn extract_query_param(
+    inputs: &syn::punctuated::Punctuated<FnArg, syn::Token![,]>,
+) -> Option<Type> {
+    for arg in inputs {
+        if let FnArg::Typed(pat_type) = arg
+            && let Some(m) = try_extract_wrapper(&pat_type.ty, QUERY)
         {
             return m.first_type().cloned();
         }

@@ -103,7 +103,7 @@ pub async fn ping(
 **SSE streaming:**
 
 ```rust
-#[orpc(method = "GET", path = "/stream", data = StreamEvent)]
+#[orpc(method = "GET", path = "/stream", data = "StreamEvent")]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>> {
     let stream = stream! {
         for i in 0..5 {

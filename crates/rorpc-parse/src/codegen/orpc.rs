@@ -36,7 +36,7 @@ const ATTR_DATA: &str = "data";
 pub struct OrpcArgs {
     pub method: String,
     pub path: String,
-    pub stream_event: Option<syn::Type>,
+    pub stream_event: Option<String>,
 }
 
 const VALID_KEYS: &[&str] = &[ATTR_METHOD, ATTR_PATH, ATTR_DATA];
@@ -102,22 +102,32 @@ impl Parse for OrpcArgs {
                     }
                 }
                 ATTR_DATA => {
-                    // Accept a type path: data = StreamEvent
-                    if let Expr::Path(expr_path) = &pair.value {
-                        let type_path = syn::TypePath {
-                            attrs: vec![],
-                            qself: expr_path.qself.clone(),
-                            path: expr_path.path.clone(),
-                        };
-                        stream_event = Some(syn::Type::Path(type_path));
-                    } else {
-                        return Err(syn::Error::new(
-                            span,
-                            format!(
-                                "{} must be a type path (e.g., StreamEventData or module::StreamEventData)",
-                                ATTR_DATA
-                            ),
-                        ));
+                    match &pair.value {
+                        // String literal: data = "StreamEvent" or data = "module::StreamEvent"
+                        // Preferred syntax for IDE support
+                        Expr::Lit(ExprLit {
+                            lit: Lit::Str(s), ..
+                        }) => {
+                            stream_event = Some(s.value());
+                        }
+                        // Type path: data = StreamEvent (backward compatibility)
+                        Expr::Path(expr_path) => {
+                            let type_path = syn::TypePath {
+                                attrs: vec![],
+                                qself: expr_path.qself.clone(),
+                                path: expr_path.path.clone(),
+                            };
+                            stream_event = Some(type_display(&syn::Type::Path(type_path)));
+                        }
+                        _ => {
+                            return Err(syn::Error::new(
+                                span,
+                                format!(
+                                    "{} must be a string literal (\"StreamEvent\") or type path (StreamEvent)",
+                                    ATTR_DATA
+                                ),
+                            ));
+                        }
                     }
                 }
                 _ => {
@@ -194,8 +204,8 @@ fn try_expand_orpc(args: OrpcArgs, func: ItemFn) -> Result<TokenStream> {
     };
 
     let stream_event_token = match &args.stream_event {
-        Some(ty) => {
-            let s = type_display(ty);
+        Some(type_name) => {
+            let s = type_name.as_str();
             quote! { Some(#s) }
         }
         None => quote! { None },
@@ -381,33 +391,40 @@ mod tests {
     use syn::parse_quote;
 
     #[test]
-    fn parse_data_type_path() {
-        // Test that data = StreamEvent (without quotes) parses correctly
+    fn parse_data_type_string() {
+        // Test that data = "StreamEvent" (string literal) parses correctly
+        let args: OrpcArgs = syn::parse_quote! {
+            method = "GET", path = "/stream", data = "StreamEvent"
+        };
+
+        assert_eq!(args.method, "GET");
+        assert_eq!(args.path, "/stream");
+        assert_eq!(args.stream_event, Some("StreamEvent".to_string()));
+    }
+
+    #[test]
+    fn parse_data_qualified_path_string() {
+        // Test that data = "crate::models::StreamEvent" works
+        let args: OrpcArgs = syn::parse_quote! {
+            method = "GET", path = "/stream", data = "crate::models::StreamEvent"
+        };
+
+        assert_eq!(
+            args.stream_event,
+            Some("crate::models::StreamEvent".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_data_type_path_backward_compat() {
+        // Test backward compatibility: data = StreamEvent (bare path)
         let args: OrpcArgs = syn::parse_quote! {
             method = "GET", path = "/stream", data = StreamEvent
         };
 
         assert_eq!(args.method, "GET");
         assert_eq!(args.path, "/stream");
-        assert!(args.stream_event.is_some());
-
-        // Verify type_display produces the correct string
-        let ty = args.stream_event.unwrap();
-        let type_str = crate::errors::type_display(&ty);
-        assert_eq!(type_str, "StreamEvent");
-    }
-
-    #[test]
-    fn parse_data_qualified_path() {
-        // Test that data = crate::models::StreamEvent works
-        let args: OrpcArgs = syn::parse_quote! {
-            method = "GET", path = "/stream", data = crate::models::StreamEvent
-        };
-
-        assert!(args.stream_event.is_some());
-        let ty = args.stream_event.unwrap();
-        let type_str = crate::errors::type_display(&ty);
-        assert_eq!(type_str, "crate::models::StreamEvent");
+        assert_eq!(args.stream_event, Some("StreamEvent".to_string()));
     }
 
     #[test]
@@ -419,14 +436,14 @@ mod tests {
 
         assert_eq!(args.method, "POST");
         assert_eq!(args.path, "/create");
-        assert!(args.stream_event.is_none());
+        assert_eq!(args.stream_event, None);
     }
 
     #[test]
     fn data_type_converts_to_string_literal() {
         // Verify that when we generate the metadata, data becomes a string literal
         let args: OrpcArgs = syn::parse_quote! {
-            method = "GET", path = "/stream", data = StreamEvent
+            method = "GET", path = "/stream", data = "StreamEvent"
         };
 
         let func: syn::ItemFn = parse_quote! {

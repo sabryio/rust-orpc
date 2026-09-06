@@ -84,7 +84,7 @@ async fn create(State(db): State<Db>, Json(data): Json<CreateInput>) -> Json<Pla
 async fn find(State(db): State<Db>, Json(id): Json<i32>) -> Result<Json<Planet>, AppError>
 
 // Streaming (SSE)
-#[orpc(method = "GET", path = "/events", data = StreamEvent)]
+#[orpc(method = "GET", path = "/events", data = "StreamEvent")]
 async fn stream() -> Sse<impl Stream<Item = Event>>
 ```
 

@@ -6,6 +6,13 @@ import { oc } from "@orpc/contract";
 import { openapi } from "@orpc/openapi";
 import { asyncIteratorObject } from "@orpc/contract";
 
+export const EventDataSchema = z.object({
+  message: z.string(),
+  count: z.number().int()
+});
+
+export type EventData = z.infer<typeof EventDataSchema>;
+
 export const FindPlanetInputSchema = z.object({
   id: z.number().int()
 });
@@ -47,20 +54,13 @@ export const DeletePlanetInputSchema = z.object({
 
 export type DeletePlanetInput = z.infer<typeof DeletePlanetInputSchema>;
 
-export const StreamEventSchema = z.object({
-  message: z.string(),
-  count: z.number().int()
-});
-
-export type StreamEvent = z.infer<typeof StreamEventSchema>;
-
 export const contract = {
   streamEventsAsync: oc
       .meta(openapi({ method: "GET", path: "/stream-async" }))
-      .output(asyncIteratorObject(StreamEventSchema)),
+      .output(asyncIteratorObject(EventDataSchema)),
   streamEvents: oc
       .meta(openapi({ method: "GET", path: "/stream" }))
-      .output(asyncIteratorObject(StreamEventSchema)),
+      .output(asyncIteratorObject(EventDataSchema)),
   ping: oc
       .meta(openapi({ method: "GET", path: "/ping" }))
       .output(z.string()),

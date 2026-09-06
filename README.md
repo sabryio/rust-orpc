@@ -119,8 +119,8 @@ pub async fn delete_planet(
     Json(input): Json<DeletePlanetInput>,
 ) -> Result<Json<()>, AppError>
 
-// SSE streaming — data takes a type path (no quotes)
-#[orpc(method = "GET", path = "/stream", data = StreamEvent)]
+// SSE streaming — data takes a string literal for IDE support
+#[orpc(method = "GET", path = "/stream", data = "StreamEvent")]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>>
 ```
 

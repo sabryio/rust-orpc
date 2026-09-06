@@ -27,7 +27,7 @@ use syn::parse_macro_input;
 ///
 /// - `method` — HTTP method string (`"GET"`, `"post"`, etc.), normalised to uppercase. Required.
 /// - `path` — Route path string (e.g. `"/planet/list"`). Required.
-/// - `data` — Type path for the SSE data payload type for streaming handlers (e.g. `StreamEvent`). Optional.
+/// - `data` — String literal naming the SSE data payload type for streaming handlers (e.g. `"StreamEvent"`). Optional. IDE-friendly: supports autocomplete and validation.
 #[proc_macro_attribute]
 pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as rorpc_parse::codegen::OrpcArgs);

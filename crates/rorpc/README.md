@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/rorpc.svg)](https://crates.io/crates/rorpc)
 [![Documentation](https://docs.rs/rorpc/badge.svg)](https://docs.rs/rorpc)
-[![License](https://img.shields.io/crates/l/rorpc.svg)](https://github.com/yourusername/rorpc)
+[![License](https://img.shields.io/crates/l/rorpc.svg)](https://github.com/sabryio/rorpc)
 
 Rust oRPC — annotation-driven Axum handlers with automatic TypeScript contract generation.
 

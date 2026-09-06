@@ -1,7 +1,7 @@
 # rorpc-parse
 
 [![Documentation](https://docs.rs/rorpc-parse/badge.svg)](https://docs.rs/rorpc-parse)
-[![License](https://img.shields.io/crates/l/rorpc-parse.svg)](https://github.com/yourusername/rorpc)
+[![License](https://img.shields.io/crates/l/rorpc-parse.svg)](https://github.com/sabryio/rorpc)
 
 AST parsing utilities and code generation for rorpc proc macros.
 

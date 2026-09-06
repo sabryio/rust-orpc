@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/rorpc-macros.svg)](https://crates.io/crates/rorpc-macros)
 [![Documentation](https://docs.rs/rorpc-macros/badge.svg)](https://docs.rs/rorpc-macros)
-[![License](https://img.shields.io/crates/l/rorpc-macros.svg)](https://github.com/yourusername/rorpc)
+[![License](https://img.shields.io/crates/l/rorpc-macros.svg)](https://github.com/sabryio/rorpc)
 
 Procedural macro bridge for [rorpc](https://crates.io/crates/rorpc) — thin wrappers over [`rorpc-parse`](https://crates.io/crates/rorpc-parse).
 

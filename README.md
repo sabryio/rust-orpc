@@ -101,6 +101,14 @@ pub async fn find_planet(
     Query(params): Query<FindPlanetInput>,
 ) -> Result<Json<Planet>, AppError>
 
+// GET — with path parameter + query parameters, auto-merged in TypeScript contract
+#[rorpc::get("/planet/{id}")]
+pub async fn find_planet(
+    State(s): State<AppState>,
+    Path(id): Path<i32>,
+    Query(q): Query<FindPlanetQuery>,
+) -> Result<Json<Planet>, AppError>
+
 // POST — with JSON body (Json<T> extractor), protected endpoint
 #[rorpc::post("/planet/create")]
 pub async fn create_planet(
@@ -143,7 +151,9 @@ pub async fn list_planets(State(s): State<AppState>) -> Result<Json<Vec<Planet>>
 
 - **POST/PUT/PATCH/DELETE:** Use `Json<T>` extractor → data sent as JSON request body
 - **GET:** Use `Query<T>` extractor → data sent as URL query parameters
-- Both render as `.input()` in the TypeScript contract
+- **Path parameters:** Use `Path<T>` extractor → extracted from URL path segments (e.g., `{id}`)
+- When `Path<T>` and `Query<T>` are both present, they are **automatically merged** in the TypeScript contract: `z.object({ id: z.number().int() }).extend(QuerySchema.shape)`
+- All render as `.input()` in the TypeScript contract
 
 **Important:** The oRPC client automatically handles the difference:
 
@@ -292,7 +302,7 @@ cargo test --workspace
 cargo test -p rorpc-parse
 ```
 
-**Current test coverage:** 86 unit tests + 3 doc tests
+**Current test coverage:** 90 unit tests + 3 doc tests
 
 ## Dependencies
 

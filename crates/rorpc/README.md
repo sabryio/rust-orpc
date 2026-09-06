@@ -76,6 +76,14 @@ async fn create(State(db): State<Db>, Json(data): Json<CreateInput>) -> Json<Pla
 #[rorpc::post("/find")]
 async fn find(State(db): State<Db>, Json(id): Json<i32>) -> Result<Json<Planet>, AppError>
 
+// GET with path parameter + query — auto-merged in TypeScript contract
+#[rorpc::get("/planet/{id}")]
+async fn find_planet(
+    State(db): State<Db>,
+    Path(id): Path<i32>,
+    Query(q): Query<FindQuery>,
+) -> Result<Json<Planet>, AppError>
+
 // Streaming (SSE) with data type annotation
 #[rorpc::get("/events", data = "StreamEvent")]
 async fn stream() -> Sse<impl Stream<Item = Event>>
@@ -166,11 +174,11 @@ export type Planet = z.infer<typeof PlanetSchema>;
 export const contract = {
   planet: {
     listPlanets: oc
-      .meta(openapi({ method: "POST", path: "/planet/list" }))
+      .meta(openapi({ method: "GET", path: "/planet/list" }))
       .output(z.array(PlanetSchema)),
     findPlanet: oc
-      .meta(openapi({ method: "POST", path: "/planet/find" }))
-      .input(z.number().int())
+      .meta(openapi({ method: "GET", path: "/planet/{id}" }))
+      .input(z.object({ id: z.number().int() }).extend(FindQuerySchema.shape))
       .output(PlanetSchema)
       .errors({ NOT_FOUND: {}, UNAUTHORIZED: {} }),
   },

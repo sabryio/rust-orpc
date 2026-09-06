@@ -35,10 +35,30 @@ rorpc::generate_contract()
 // Auto-generated — do not edit
 export const contract = {
   planet: {
+    findPlanet: oc
+      .meta(openapi({ method: "GET", path: "/planet/{id}" }))
+      .input(
+        z.object({ id: z.number().int() }).extend(FindPlanetQuerySchema.shape),
+      )
+      .output(PlanetSchema)
+      .errors({
+        NOT_FOUND: {},
+        INTERNAL: { data: z.object({ msg: z.string() }) },
+      }),
     listPlanets: oc
       .meta(openapi({ method: "GET", path: "/planet/list" }))
       .output(z.array(PlanetSchema))
-      .errors({ NOT_FOUND: {}, INTERNAL: { data: z.string() } }),
+      .errors({
+        NOT_FOUND: {},
+        INTERNAL: { data: z.object({ msg: z.string() }) },
+      }),
+    deletePlanet: oc
+      .meta(openapi({ method: "DELETE", path: "/planet/{id}" }))
+      .input(z.object({ id: z.number().int() }))
+      .errors({
+        NOT_FOUND: {},
+        INTERNAL: { data: z.object({ msg: z.string() }) },
+      }),
   },
 } as const;
 ```
@@ -94,13 +114,6 @@ The concise syntax for common HTTP methods:
 #[rorpc::get("/planet/list")]
 pub async fn list_planets(State(s): State<AppState>) -> Result<Json<Vec<Planet>>, AppError>
 
-// GET — with query parameters (Query<T> extractor)
-#[rorpc::get("/planet/find")]
-pub async fn find_planet(
-    State(s): State<AppState>,
-    Query(params): Query<FindPlanetInput>,
-) -> Result<Json<Planet>, AppError>
-
 // GET — with path parameter + query parameters, auto-merged in TypeScript contract
 #[rorpc::get("/planet/{id}")]
 pub async fn find_planet(
@@ -110,19 +123,19 @@ pub async fn find_planet(
 ) -> Result<Json<Planet>, AppError>
 
 // POST — with JSON body (Json<T> extractor), protected endpoint
-#[rorpc::post("/planet/create")]
+#[rorpc::post("/planet")]
 pub async fn create_planet(
     State(s): State<AppState>,
     _session: Session,
     Json(input): Json<CreatePlanetInput>,
 ) -> Result<Json<Planet>, AppError>
 
-// DELETE — with JSON body (Json<T> extractor), protected endpoint
-#[rorpc::delete("/planet/delete")]
+// DELETE — with path parameter, protected endpoint
+#[rorpc::delete("/planet/{id}")]
 pub async fn delete_planet(
     State(s): State<AppState>,
     _session: Session,
-    Json(input): Json<DeletePlanetInput>,
+    Path(id): Path<i32>,
 ) -> Result<Json<()>, AppError>
 
 // SSE streaming — data attribute for type-safe events

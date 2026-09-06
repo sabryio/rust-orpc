@@ -26,12 +26,13 @@ async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
     Json(db.list().await)
 }
 
-#[rorpc::get("/planet/find")]
+#[rorpc::get("/planet/{id}")]
 async fn find_planet(
     State(db): State<Db>,
-    Query(input): Query<FindInput>,
+    Path(id): Path<i32>,
+    Query(q): Query<FindQuery>,
 ) -> Result<Json<Planet>, AppError> {
-    db.find(input.id).await.map(Json).ok_or(AppError::NotFound)
+    db.find(id, q).await.map(Json).ok_or(AppError::NotFound)
 }
 ```
 
@@ -144,7 +145,7 @@ rorpc-macros = "0.1"
 ```
 rorpc-macros (proc-macro bridge, lib.rs only)
      └── rorpc-parse (all implementation, fully testable)
-           └── syn 2.0, quote, proc-macro2, inventory
+           └── syn 3.0, quote, proc-macro2, inventory
 ```
 
 **Why the split?**

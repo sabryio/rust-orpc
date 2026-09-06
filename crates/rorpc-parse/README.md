@@ -16,7 +16,7 @@ The `rorpc-macros` crate is a thin bridge that calls functions from this crate.
 ```
 rorpc-macros (proc-macro bridge, lib.rs only)
      └── rorpc-parse (this crate — all implementation)
-           └── syn 2.0, quote, proc-macro2, inventory
+           └── syn 3.0, quote, proc-macro2, inventory
 ```
 
 ### Module Structure
@@ -142,7 +142,7 @@ cargo test -p rorpc-parse
 
 ## Dependencies
 
-- **syn 2.0** — AST parsing (with `full`, `parsing`, `extra-traits` features)
+- **syn 3.0** — AST parsing (with `full`, `parsing`, `extra-traits` features)
 - **quote** — Code generation
 - **proc-macro2** — Token stream manipulation
 - **inventory** — Compile-time registration system

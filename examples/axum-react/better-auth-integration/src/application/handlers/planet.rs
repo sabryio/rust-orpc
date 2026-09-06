@@ -2,7 +2,6 @@ use axum::{
     extract::{Query, State},
     Json,
 };
-use rorpc::orpc;
 
 use crate::{
     application::errors::AppError,
@@ -10,7 +9,7 @@ use crate::{
     infrastructure::{auth::extractors::Session, context::AppState},
 };
 
-#[orpc(method = "GET", path = "/planet/list")]
+#[rorpc::get("/planet/list")]
 pub async fn list_planets(State(state): State<AppState>) -> Result<Json<Vec<Planet>>, AppError> {
     state
         .planet_repo
@@ -20,7 +19,7 @@ pub async fn list_planets(State(state): State<AppState>) -> Result<Json<Vec<Plan
         .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
 
-#[orpc(method = "GET", path = "/planet/list-paginated")]
+#[rorpc::get("/planet/list-paginated")]
 pub async fn list_planets_paginated(
     State(state): State<AppState>,
     Query(input): Query<ListPlanetsPaginatedInput>,
@@ -33,7 +32,7 @@ pub async fn list_planets_paginated(
         .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
 
-#[orpc(method = "GET", path = "/planet/find")]
+#[rorpc::get("/planet/find")]
 pub async fn find_planet(
     State(state): State<AppState>,
     Query(input): Query<FindPlanetInput>,
@@ -47,7 +46,7 @@ pub async fn find_planet(
 }
 
 /// Protected — `CurrentSession` returns 401 automatically if not authenticated.
-#[orpc(method = "POST", path = "/planet/create")]
+#[rorpc::post("/planet/create")]
 pub async fn create_planet(
     State(state): State<AppState>,
     _session: Session,
@@ -62,7 +61,7 @@ pub async fn create_planet(
 }
 
 /// Protected — `CurrentSession` returns 401 automatically if not authenticated.
-#[orpc(method = "DELETE", path = "/planet/delete")]
+#[rorpc::delete("/planet/delete")]
 pub async fn delete_planet(
     State(state): State<AppState>,
     _session: Session,

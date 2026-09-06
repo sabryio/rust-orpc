@@ -7,20 +7,19 @@
 //!
 //! ```rust,ignore
 //! use axum::{extract::State, Json};
-//! use rorpc::orpc;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Planet { id: i32, name: String }
 //!
-//! #[orpc(method = "POST", path = "/planet/list")]
+//! #[rorpc::get("/planet/list")]
 //! async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
 //!     Json(db.list().await)
 //! }
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let app = router!(db);
+//!     let app = rorpc::router!(db);
 //!
 //!     rorpc::generate_contract()
 //!         .output("../client/src/rpc/index.ts")
@@ -47,11 +46,16 @@ pub use inventory;
 
 pub use rorpc_macros::{OrpcError, ZodTs};
 
-// Re-export the #[orpc] attribute macro and router! proc macro
-pub use rorpc_macros::orpc;
+// Re-export the attribute macros and router! proc macro
+pub use rorpc_macros::delete;
+pub use rorpc_macros::get;
+pub use rorpc_macros::patch;
+pub use rorpc_macros::post;
+pub use rorpc_macros::put;
+pub use rorpc_macros::route;
 pub use rorpc_macros::router;
 
-/// Begin building a TypeScript contract from all discovered `#[orpc]` handlers.
+/// Begin building a TypeScript contract from all discovered handlers.
 ///
 /// # Example
 ///

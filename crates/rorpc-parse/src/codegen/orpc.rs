@@ -39,6 +39,98 @@ pub struct OrpcArgs {
     pub stream_event: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// MethodShorthandArgs — parsed from #[orpc::get("/path")] or #[orpc::post("/path", data = "Type")]
+// ---------------------------------------------------------------------------
+
+/// Parsed arguments for method-specific shorthand macros like `#[orpc::get("/path")]`.
+///
+/// Syntax: `#[orpc::get("/path")]` or `#[orpc::post("/path", data = "StreamEvent")]`
+pub struct MethodShorthandArgs {
+    pub path: String,
+    pub data: Option<String>,
+}
+
+impl Parse for MethodShorthandArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // First token must be a string literal (the path)
+        let path_lit: syn::LitStr = input.parse()?;
+        let path = path_lit.value();
+
+        // Optional: comma + data = "Type"
+        let mut data = None;
+
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+
+            let pairs = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
+
+            for pair in &pairs {
+                let key = pair
+                    .path
+                    .get_ident()
+                    .map(|i| i.to_string())
+                    .unwrap_or_default();
+
+                let span = pair
+                    .path
+                    .get_ident()
+                    .map(|i| i.span())
+                    .unwrap_or_else(proc_macro2::Span::call_site);
+
+                match key.as_str() {
+                    ATTR_DATA => match &pair.value {
+                        Expr::Lit(ExprLit {
+                            lit: Lit::Str(s), ..
+                        }) => {
+                            data = Some(s.value());
+                        }
+                        Expr::Path(expr_path) => {
+                            let type_path = syn::TypePath {
+                                attrs: vec![],
+                                qself: expr_path.qself.clone(),
+                                path: expr_path.path.clone(),
+                            };
+                            data = Some(type_display(&syn::Type::Path(type_path)));
+                        }
+                        _ => {
+                            return Err(syn::Error::new(
+                                span,
+                                format!(
+                                    "{} must be a string literal (\"StreamEvent\") or type path (StreamEvent)",
+                                    ATTR_DATA
+                                ),
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(syn::Error::new(
+                            span,
+                            Error::unknown_key(span, &key, &[ATTR_DATA]).to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(MethodShorthandArgs { path, data })
+    }
+}
+
+/// Convert method shorthand args to standard OrpcArgs.
+///
+/// This allows method-specific macros like `#[orpc::get("/path")]` to reuse
+/// all the existing codegen logic without duplication.
+impl MethodShorthandArgs {
+    pub fn into_orpc_args(self, method: &str) -> OrpcArgs {
+        OrpcArgs {
+            method: method.to_uppercase(),
+            path: self.path,
+            stream_event: self.data,
+        }
+    }
+}
+
 const VALID_KEYS: &[&str] = &[ATTR_METHOD, ATTR_PATH, ATTR_DATA];
 
 impl Parse for OrpcArgs {
@@ -175,7 +267,7 @@ impl Parse for OrpcArgs {
 // expand_orpc
 // ---------------------------------------------------------------------------
 
-/// Generate the full expansion for `#[orpc(method, path)] async fn handler(...)`.
+/// Generate the full expansion for `#[rorpc::route(method, path)]` or shorthand macros.
 ///
 /// Returns the original function unchanged plus all inventory registrations.
 pub fn expand_orpc(args: OrpcArgs, func: ItemFn) -> TokenStream {
@@ -471,4 +563,72 @@ mod tests {
             "stream_event_type_name must be a string literal, not a bare identifier"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// MethodShorthandArgs tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_shorthand_path_only() {
+    // Test: #[rorpc::get("/planet/list")]
+    let args: MethodShorthandArgs = syn::parse_quote! { "/planet/list" };
+
+    assert_eq!(args.path, "/planet/list");
+    assert_eq!(args.data, None);
+}
+
+#[test]
+fn parse_shorthand_with_data_string() {
+    // Test: #[rorpc::get("/stream", data = "EventData")]
+    let args: MethodShorthandArgs = syn::parse_quote! { "/stream", data = "EventData" };
+
+    assert_eq!(args.path, "/stream");
+    assert_eq!(args.data, Some("EventData".to_string()));
+}
+
+#[test]
+fn parse_shorthand_with_qualified_data() {
+    // Test: #[rorpc::get("/stream", data = "models::EventData")]
+    let args: MethodShorthandArgs = syn::parse_quote! { "/stream", data = "models::EventData" };
+
+    assert_eq!(args.path, "/stream");
+    assert_eq!(args.data, Some("models::EventData".to_string()));
+}
+
+#[test]
+fn parse_shorthand_with_data_type_path() {
+    // Test backward compat: #[rorpc::get("/stream", data = EventData)]
+    let args: MethodShorthandArgs = syn::parse_quote! { "/stream", data = EventData };
+
+    assert_eq!(args.path, "/stream");
+    assert_eq!(args.data, Some("EventData".to_string()));
+}
+
+#[test]
+fn shorthand_converts_to_orpc_args() {
+    let shorthand: MethodShorthandArgs = syn::parse_quote! { "/planet/list" };
+    let args = shorthand.into_orpc_args("GET");
+
+    assert_eq!(args.method, "GET");
+    assert_eq!(args.path, "/planet/list");
+    assert_eq!(args.stream_event, None);
+}
+
+#[test]
+fn shorthand_with_data_converts_to_orpc_args() {
+    let shorthand: MethodShorthandArgs = syn::parse_quote! { "/stream", data = "EventData" };
+    let args = shorthand.into_orpc_args("GET");
+
+    assert_eq!(args.method, "GET");
+    assert_eq!(args.path, "/stream");
+    assert_eq!(args.stream_event, Some("EventData".to_string()));
+}
+
+#[test]
+fn shorthand_method_normalized_to_uppercase() {
+    let shorthand: MethodShorthandArgs = syn::parse_quote! { "/test" };
+    let args = shorthand.into_orpc_args("get"); // lowercase input
+
+    assert_eq!(args.method, "GET"); // should be uppercase
 }

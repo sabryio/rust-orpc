@@ -14,15 +14,39 @@ The entire implementation is a single `lib.rs` file with four proc macros that d
 
 ## Macros
 
-### `#[rorpc]`
+### Method-Specific Shorthands
 
-Annotate Axum handlers to register metadata for contract generation and auto-routing. The function remains unchanged — it's still a valid Axum handler.
+Concise syntax for common HTTP methods:
 
 ```rust
 use axum::{extract::State, Json};
-use rorpc::rorpc;
 
-#[rorpc(method = "POST", path = "/planet/list")]
+#[rorpc::post("/planet/list")]
+async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
+    Json(db.list().await)
+}
+
+#[rorpc::get("/planet/find")]
+async fn find_planet(
+    State(db): State<Db>,
+    Query(input): Query<FindInput>,
+) -> Result<Json<Planet>, AppError> {
+    db.find(input.id).await.map(Json).ok_or(AppError::NotFound)
+}
+```
+
+**Available methods:** `get`, `post`, `put`, `patch`, `delete`
+
+**Optional attributes:**
+
+- `data` — SSE data payload type for streaming handlers (e.g. `data = "StreamEvent"`)
+
+### `#[rorpc::route]`
+
+Explicit method + path syntax:
+
+```rust
+#[rorpc::route(method = "POST", path = "/planet/list")]
 async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
     Json(db.list().await)
 }
@@ -39,7 +63,7 @@ async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
 
 ### `router!`
 
-Auto-discovery macro that builds an Axum `Router` from all `#[rorpc]`-annotated handlers using the `inventory` crate.
+Auto-discovery macro that builds an Axum `Router` from all annotated handlers using the `inventory` crate.
 
 ```rust
 use rorpc::router;

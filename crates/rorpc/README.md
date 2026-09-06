@@ -8,7 +8,7 @@ Rust oRPC — annotation-driven Axum handlers with automatic TypeScript contract
 
 ## Overview
 
-`rorpc` bridges Rust Axum handlers with TypeScript clients through compile-time metadata collection and automatic code generation. Annotate handlers with `#[rorpc]`, derive Zod schemas, and generate type-safe TypeScript contracts with zero runtime overhead.
+`rorpc` bridges Rust Axum handlers with TypeScript clients through compile-time metadata collection and automatic code generation. Annotate handlers with method-specific macros (`#[rorpc::get]`, `#[rorpc::post]`, etc.), derive Zod schemas, and generate type-safe TypeScript contracts with zero runtime overhead.
 
 ## Features
 
@@ -23,7 +23,7 @@ Rust oRPC — annotation-driven Axum handlers with automatic TypeScript contract
 
 ```rust
 use axum::{extract::State, Json};
-use rorpc::{rorpc, router, ZodTs};
+use rorpc::{router, ZodTs};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, ZodTs)]
@@ -34,12 +34,12 @@ pub struct Planet {
     pub description: Option<String>,
 }
 
-#[orpc(method = "POST", path = "/planet/list")]
+#[rorpc::post("/planet/list")]
 async fn list_planets(State(db): State<Database>) -> Json<Vec<Planet>> {
     Json(db.list().await)
 }
 
-#[orpc(method = "POST", path = "/planet/find")]
+#[rorpc::post("/planet/find")]
 async fn find_planet(
     State(db): State<Database>,
     Json(id): Json<i32>,
@@ -51,7 +51,7 @@ async fn find_planet(
 async fn main() {
     let app = router!(state);
 
-    orpc::generate_contract()
+    rorpc::generate_contract()
         .output("../client/src/rpc/index.ts")
         .unwrap();
 
@@ -61,36 +61,43 @@ async fn main() {
 
 ## Macros
 
-### `#[orpc]`
+### Method-Specific Shorthands (Recommended)
 
-Annotate Axum handlers to register metadata. The function remains a valid Axum handler.
+```rust
+// GET request
+#[rorpc::get("/ping")]
+async fn ping(State(s): State<AppState>) -> Json<String>
+
+// POST with JSON input
+#[rorpc::post("/create")]
+async fn create(State(db): State<Db>, Json(data): Json<CreateInput>) -> Json<Planet>
+
+// With Result for typed errors
+#[rorpc::post("/find")]
+async fn find(State(db): State<Db>, Json(id): Json<i32>) -> Result<Json<Planet>, AppError>
+
+// Streaming (SSE) with data type annotation
+#[rorpc::get("/events", data = "StreamEvent")]
+async fn stream() -> Sse<impl Stream<Item = Event>>
+```
+
+**Available methods:** `get`, `post`, `put`, `patch`, `delete`
+
+### `#[rorpc::route]` — Explicit Method + Path
+
+For non-standard methods or when you prefer explicit syntax:
+
+```rust
+#[rorpc::route(method = "GET", path = "/planet/list")]
+async fn list_planets(State(s): State<AppState>) -> Json<Vec<Planet>>
+```
 
 **Required attributes:** `method`, `path`  
 **Optional attributes:** `data` (SSE handlers)
 
-**Supported handler signatures:**
-
-```rust
-// State only
-#[orpc(method = "GET", path = "/ping")]
-async fn ping(State(s): State<AppState>) -> Json<String>
-
-// Input + State
-#[orpc(method = "POST", path = "/create")]
-async fn create(State(db): State<Db>, Json(data): Json<CreateInput>) -> Json<Planet>
-
-// With Result for typed errors
-#[orpc(method = "POST", path = "/find")]
-async fn find(State(db): State<Db>, Json(id): Json<i32>) -> Result<Json<Planet>, AppError>
-
-// Streaming (SSE)
-#[orpc(method = "GET", path = "/events", data = "StreamEvent")]
-async fn stream() -> Sse<impl Stream<Item = Event>>
-```
-
 ### `router!`
 
-Auto-discover all `#[orpc]`-annotated handlers and build an Axum `Router`.
+Auto-discover all annotated handlers and build an Axum `Router`.
 
 ```rust
 let app = router!();                            // all handlers, no state

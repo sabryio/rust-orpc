@@ -7,17 +7,16 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Annotate a plain Axum handler to register its metadata with rorpc.
+/// Annotate an Axum handler with explicit HTTP method and path.
 ///
-/// The function is left completely unchanged — it remains a valid Axum handler.
-/// Two `inventory::submit!` calls are added alongside it:
-/// one for [`rorpc::HandlerMetadata`] (used by contract generation) and one for
-/// [`rorpc::HandlerRegistration`] (used by [`router!`]).
+/// This is the canonical syntax for specifying both method and path explicitly.
+/// The function remains a valid Axum handler with metadata registered for contract
+/// generation and router discovery.
 ///
 /// # Syntax
 ///
 /// ```rust,ignore
-/// #[orpc(method = "POST", path = "/planet/list")]
+/// #[rorpc::route(method = "POST", path = "/planet/list")]
 /// async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
 ///     Json(db.list().await)
 /// }
@@ -25,13 +24,133 @@ use syn::parse_macro_input;
 ///
 /// # Arguments
 ///
-/// - `method` — HTTP method string (`"GET"`, `"post"`, etc.), normalised to uppercase. Required.
+/// - `method` — HTTP method string (`"GET"`, `"POST"`, etc.), normalized to uppercase. Required.
 /// - `path` — Route path string (e.g. `"/planet/list"`). Required.
-/// - `data` — String literal naming the SSE data payload type for streaming handlers (e.g. `"StreamEvent"`). Optional. IDE-friendly: supports autocomplete and validation.
+/// - `data` — String literal naming the SSE data payload type for streaming handlers (e.g. `"StreamEvent"`). Optional.
+///
+/// # For Shorthand Syntax
+///
+/// Consider using method-specific macros for brevity:
+/// - `#[rorpc::get("/path")]`
+/// - `#[rorpc::post("/path")]`
+/// - `#[rorpc::put("/path")]`
+/// - `#[rorpc::patch("/path")]`
+/// - `#[rorpc::delete("/path")]`
 #[proc_macro_attribute]
-pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as rorpc_parse::codegen::OrpcArgs);
     let func = parse_macro_input!(item as syn::ItemFn);
+    rorpc_parse::codegen::expand_orpc(args, func).into()
+}
+
+/// Shorthand for `#[orpc::route(method = "GET", path = "...")]`.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc::get("/planet/list")]
+/// async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
+///     Json(db.list().await)
+/// }
+/// ```
+///
+/// # With streaming data type
+///
+/// ```rust,ignore
+/// #[orpc::get("/stream", data = "StreamEvent")]
+/// async fn stream_events() -> Sse<impl Stream<Item = Event>> {
+///     // data takes a string literal for IDE support
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn get(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let shorthand_args = parse_macro_input!(attr as rorpc_parse::codegen::MethodShorthandArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let args = shorthand_args.into_orpc_args("GET");
+    rorpc_parse::codegen::expand_orpc(args, func).into()
+}
+
+/// Shorthand for `#[orpc::route(method = "POST", path = "...")]`.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc::post("/planet/create")]
+/// async fn create_planet(
+///     State(db): State<Db>,
+///     Json(input): Json<CreateInput>,
+/// ) -> Result<Json<Planet>, AppError> {
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn post(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let shorthand_args = parse_macro_input!(attr as rorpc_parse::codegen::MethodShorthandArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let args = shorthand_args.into_orpc_args("POST");
+    rorpc_parse::codegen::expand_orpc(args, func).into()
+}
+
+/// Shorthand for `#[orpc::route(method = "PUT", path = "...")]`.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc::put("/planet/{id}")]
+/// async fn update_planet(
+///     State(db): State<Db>,
+///     Json(input): Json<UpdateInput>,
+/// ) -> Result<Json<Planet>, AppError> {
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn put(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let shorthand_args = parse_macro_input!(attr as rorpc_parse::codegen::MethodShorthandArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let args = shorthand_args.into_orpc_args("PUT");
+    rorpc_parse::codegen::expand_orpc(args, func).into()
+}
+
+/// Shorthand for `#[orpc::route(method = "PATCH", path = "...")]`.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc::patch("/planet/{id}")]
+/// async fn patch_planet(
+///     State(db): State<Db>,
+///     Json(input): Json<PatchInput>,
+/// ) -> Result<Json<Planet>, AppError> {
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let shorthand_args = parse_macro_input!(attr as rorpc_parse::codegen::MethodShorthandArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let args = shorthand_args.into_orpc_args("PATCH");
+    rorpc_parse::codegen::expand_orpc(args, func).into()
+}
+
+/// Shorthand for `#[orpc::route(method = "DELETE", path = "...")]`.
+///
+/// # Syntax
+///
+/// ```rust,ignore
+/// #[orpc::delete("/planet/{id}")]
+/// async fn delete_planet(
+///     State(db): State<Db>,
+///     Json(input): Json<DeleteInput>,
+/// ) -> Result<Json<()>, AppError> {
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn delete(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let shorthand_args = parse_macro_input!(attr as rorpc_parse::codegen::MethodShorthandArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let args = shorthand_args.into_orpc_args("DELETE");
     rorpc_parse::codegen::expand_orpc(args, func).into()
 }
 

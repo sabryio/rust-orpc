@@ -1,10 +1,10 @@
 # rorpc
 
-Rust oRPC — annotate plain Axum handlers with `#[orpc]` and get automatic TypeScript contract generation, type-safe Zod schemas, and zero-boilerplate routing.
+Rust oRPC — annotate plain Axum handlers with method-specific macros and get automatic TypeScript contract generation, type-safe Zod schemas, and zero-boilerplate routing.
 
 ```rust
 use axum::{extract::State, Json};
-use rorpc::{orpc, ZodTs};
+use rorpc::ZodTs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, ZodTs)]
@@ -14,7 +14,7 @@ pub struct Planet {
     pub description: Option<String>,
 }
 
-#[orpc(method = "GET", path = "/planet/list")]
+#[rorpc::get("/planet/list")]
 pub async fn list_planets(State(db): State<AppState>) -> Result<Json<Vec<Planet>>, AppError> {
     db.planet_repo.list().await.map(Json).map_err(AppError::from)
 }
@@ -45,7 +45,7 @@ export const contract = {
 
 ## How It Works
 
-1. `#[orpc]` registers `HandlerMetadata` and `HandlerRegistration` at link time via the [`inventory`](https://crates.io/crates/inventory) crate — no central list, no startup registry call.
+1. Method-specific macros (`#[rorpc::get]`, `#[rorpc::post]`, etc.) register `HandlerMetadata` and `HandlerRegistration` at link time via the [`inventory`](https://crates.io/crates/inventory) crate — no central list, no startup registry call.
 2. `router!(state)` collects all registered handlers and builds an Axum `Router` automatically.
 3. `generate_contract()` iterates the same registrations, collects Zod schemas from `#[derive(ZodTs)]` types, and writes a TypeScript file.
 
@@ -85,26 +85,24 @@ rorpc (runtime)
 
 ## Macros
 
-### `#[orpc(method, path)]`
+### Method-Specific Shorthands (Recommended)
 
-Annotates any valid Axum handler. The function is emitted unchanged plus two `inventory::submit!` calls — one for contract generation, one for `router!`.
+The concise syntax for common HTTP methods:
 
 ```rust
-use rorpc::orpc;
-
 // GET — no input, returns list
-#[orpc(method = "GET", path = "/planet/list")]
+#[rorpc::get("/planet/list")]
 pub async fn list_planets(State(s): State<AppState>) -> Result<Json<Vec<Planet>>, AppError>
 
 // GET — with query parameters (Query<T> extractor)
-#[orpc(method = "GET", path = "/planet/find")]
+#[rorpc::get("/planet/find")]
 pub async fn find_planet(
     State(s): State<AppState>,
     Query(params): Query<FindPlanetInput>,
 ) -> Result<Json<Planet>, AppError>
 
 // POST — with JSON body (Json<T> extractor), protected endpoint
-#[orpc(method = "POST", path = "/planet/create")]
+#[rorpc::post("/planet/create")]
 pub async fn create_planet(
     State(s): State<AppState>,
     _session: Session,
@@ -112,19 +110,34 @@ pub async fn create_planet(
 ) -> Result<Json<Planet>, AppError>
 
 // DELETE — with JSON body (Json<T> extractor), protected endpoint
-#[orpc(method = "DELETE", path = "/planet/delete")]
+#[rorpc::delete("/planet/delete")]
 pub async fn delete_planet(
     State(s): State<AppState>,
     _session: Session,
     Json(input): Json<DeletePlanetInput>,
 ) -> Result<Json<()>, AppError>
 
-// SSE streaming — data takes a string literal for IDE support
-#[orpc(method = "GET", path = "/stream", data = "StreamEvent")]
+// SSE streaming — data attribute for type-safe events
+#[rorpc::get("/stream", data = "StreamEvent")]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>>
 ```
 
-**Supported HTTP methods:** GET, POST, PUT, PATCH, DELETE
+**Available methods:** `get`, `post`, `put`, `patch`, `delete`
+
+### `#[rorpc::route]` — Explicit Method + Path
+
+For when you need the explicit form or non-standard methods:
+
+```rust
+#[rorpc::route(method = "GET", path = "/planet/list")]
+pub async fn list_planets(State(s): State<AppState>) -> Result<Json<Vec<Planet>>, AppError>
+```
+
+**Arguments:**
+
+- `method` — HTTP method string (`"GET"`, `"POST"`, etc.), normalized to uppercase. Required.
+- `path` — Route path string (e.g. `"/planet/list"`). Required.
+- `data` — String literal naming the SSE data payload type for streaming handlers (e.g. `"StreamEvent"`). Optional.
 
 **Request body vs query parameters:**
 
@@ -272,12 +285,14 @@ pnpm dev
 ## Testing
 
 ```bash
-# All tests including rorpc-parse unit tests (67+)
+# All tests including rorpc-parse unit tests (86 passing)
 cargo test --workspace
 
 # rorpc-parse only (fast, no proc-macro overhead)
 cargo test -p rorpc-parse
 ```
+
+**Current test coverage:** 86 unit tests + 3 doc tests
 
 ## Dependencies
 

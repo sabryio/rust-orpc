@@ -1,6 +1,5 @@
 use axum::{extract::State, Json};
 use better_auth::prelude::AuthUser;
-use rorpc::orpc;
 use serde_json::json;
 
 use crate::infrastructure::{
@@ -8,7 +7,7 @@ use crate::infrastructure::{
     context::AppState,
 };
 
-#[orpc(method = "GET", path = "/profile")]
+#[rorpc::get("/profile")]
 pub async fn get_profile(
     State(_state): State<AppState>,
     session: Session,

@@ -4,7 +4,6 @@ use axum::{
     response::sse::{Event, KeepAlive},
     response::Sse,
 };
-use rorpc::orpc;
 use std::{convert::Infallible, time::Duration};
 use tokio_stream::{iter, Stream, StreamExt};
 
@@ -44,7 +43,7 @@ where
 // Handlers
 // ---------------------------------------------------------------------------
 
-#[orpc(method = "GET", path = "/stream", data = "EventData")]
+#[rorpc::get("/stream", data = "EventData")]
 pub async fn stream_events(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -65,7 +64,7 @@ pub async fn stream_events(
     .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
 }
 
-#[orpc(method = "GET", path = "/stream-async", data = "EventData")]
+#[rorpc::get("/stream-async", data = "EventData")]
 pub async fn stream_events_async(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

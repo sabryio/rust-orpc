@@ -34,7 +34,7 @@ impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::NotFound => write!(f, "Not found"),
-            AppError::Internal{ msg } => write!(f, "Internal error: {msg}"),
+            AppError::Internal { msg } => write!(f, "Internal error: {msg}"),
         }
     }
 }

@@ -8,9 +8,15 @@ pub struct Planet {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, ZodTs)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FindPlanetInput {
     pub id: i32,
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ZodTs)]
+pub struct FindPlanetQuery {
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ZodTs)]

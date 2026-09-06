@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     Json,
 };
 
@@ -32,11 +32,13 @@ pub async fn list_planets_paginated(
         .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
 
-#[rorpc::get("/planet/find")]
+#[rorpc::get("/planet/{id}")]
 pub async fn find_planet(
     State(state): State<AppState>,
-    Query(input): Query<FindPlanetInput>,
+    Path(id): Path<i32>,
+    Query(query): Query<FindPlanetQuery>,
 ) -> Result<Json<Planet>, AppError> {
+    let input = FindPlanetInput { id, q: query.q };
     state
         .planet_repo
         .find(input)

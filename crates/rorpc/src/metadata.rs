@@ -27,6 +27,12 @@ pub struct HandlerMetadata {
     pub error_type_name: Option<&'static str>,
     /// Stream event type name for SSE endpoints (if specified with `data` attribute)
     pub stream_event_type_name: Option<&'static str>,
+    /// Ordered comma-separated Rust type names for `Path<T>` parameters.
+    ///
+    /// E.g., `Path(id): Path<i32>` on `/planet/{id}` → `"i32"`
+    /// Multiple params on `/ws/{wsId}/planet/{id}` → `"i32,i32"`
+    /// Empty string when no `Path<T>` extractors are present.
+    pub path_param_types: &'static str,
 }
 
 inventory::collect!(HandlerMetadata);

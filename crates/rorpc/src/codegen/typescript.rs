@@ -41,6 +41,74 @@ pub fn generate_real_schemas(schemas: &[SchemaEntry]) -> String {
         .join("\n\n")
 }
 
+/// Parse a Zod object schema string and extract field definitions.
+///
+/// Returns a map of field names to their Zod type definitions, or `None` if
+/// the input is not a `z.object()` schema.
+///
+/// # Examples
+///
+/// ```
+/// # use std::collections::HashMap;
+/// # use rorpc::codegen::typescript::parse_zod_object_fields;
+/// let schema = "z.object({ id: z.number().int(), name: z.string() })";
+/// let fields = parse_zod_object_fields(schema).unwrap();
+/// assert_eq!(fields.get("id"), Some(&"z.number().int()".to_string()));
+/// assert_eq!(fields.get("name"), Some(&"z.string()".to_string()));
+///
+/// // Non-object schemas return None
+/// assert!(parse_zod_object_fields("z.string()").is_none());
+/// ```
+pub fn parse_zod_object_fields(schema: &str) -> Option<std::collections::HashMap<String, String>> {
+    let trimmed = schema.trim();
+
+    if !trimmed.starts_with("z.object({") || !trimmed.ends_with("})") {
+        return None;
+    }
+
+    // Extract inner content between { and }
+    let start = trimmed.find('{')? + 1;
+    let end = trimmed.rfind('}')?;
+    let inner = &trimmed[start..end];
+
+    let mut fields = std::collections::HashMap::new();
+    let mut depth = 0;
+    let mut current_field = String::new();
+    let mut current_name = String::new();
+    let mut in_field_name = true;
+
+    for ch in inner.chars() {
+        match ch {
+            '{' | '(' => depth += 1,
+            '}' | ')' => depth -= 1,
+            ':' if depth == 0 && in_field_name => {
+                current_name = current_field.trim().to_string();
+                current_field.clear();
+                in_field_name = false;
+                continue;
+            }
+            ',' if depth == 0 => {
+                if !current_name.is_empty() {
+                    fields.insert(current_name.clone(), current_field.trim().to_string());
+                }
+                current_field.clear();
+                current_name.clear();
+                in_field_name = true;
+                continue;
+            }
+            _ => {}
+        }
+        current_field.push(ch);
+    }
+
+    // Handle last field
+    if !current_name.is_empty() {
+        fields.insert(current_name, current_field.trim().to_string());
+    }
+
+    Some(fields)
+}
+
 /// Fallback: generate placeholder schemas from handler type names.
 pub fn generate_placeholder_schemas(handlers: &[HandlerInfo]) -> String {
     let mut lines = Vec::new();
@@ -139,5 +207,27 @@ mod tests {
     #[test]
     fn schema_name_module_path() {
         assert_eq!(to_schema_name("models::Planet"), "PlanetSchema");
+    }
+
+    #[test]
+    fn parse_simple_zod_object() {
+        let schema = "z.object({ id: z.number().int(), name: z.string() })";
+        let fields = parse_zod_object_fields(schema).unwrap();
+        assert_eq!(fields.get("id"), Some(&"z.number().int()".to_string()));
+        assert_eq!(fields.get("name"), Some(&"z.string()".to_string()));
+    }
+
+    #[test]
+    fn parse_zod_object_with_optional() {
+        let schema = "z.object({ id: z.number().int(), q: z.string().optional() })";
+        let fields = parse_zod_object_fields(schema).unwrap();
+        assert_eq!(fields.get("id"), Some(&"z.number().int()".to_string()));
+        assert_eq!(fields.get("q"), Some(&"z.string().optional()".to_string()));
+    }
+
+    #[test]
+    fn non_object_schema_returns_none() {
+        assert!(parse_zod_object_fields("z.string()").is_none());
+        assert!(parse_zod_object_fields("z.array(z.number())").is_none());
     }
 }

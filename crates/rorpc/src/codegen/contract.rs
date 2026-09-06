@@ -7,7 +7,11 @@ use super::HandlerInfo;
 use std::collections::BTreeMap;
 
 /// Generate the `export const contract = { ... } as const` TypeScript block.
-pub fn generate_contract(handlers: &[HandlerInfo], errors: &[super::ErrorInfo]) -> String {
+pub fn generate_contract(
+    handlers: &[HandlerInfo],
+    errors: &[super::ErrorInfo],
+    schemas: &[super::SchemaEntry],
+) -> String {
     let error_map: std::collections::HashMap<&str, &super::ErrorInfo> =
         errors.iter().map(|e| (e.type_name, e)).collect();
 
@@ -23,12 +27,18 @@ pub fn generate_contract(handlers: &[HandlerInfo], errors: &[super::ErrorInfo]) 
     for (namespace, handlers) in &namespaces {
         if namespace.is_empty() {
             for h in handlers {
-                lines.push(format!("  {},", generate_procedure_entry(h, &error_map)));
+                lines.push(format!(
+                    "  {},",
+                    generate_procedure_entry(h, &error_map, schemas)
+                ));
             }
         } else {
             lines.push(format!("  {}: {{", namespace));
             for h in handlers {
-                lines.push(format!("    {},", generate_procedure_entry(h, &error_map)));
+                lines.push(format!(
+                    "    {},",
+                    generate_procedure_entry(h, &error_map, schemas)
+                ));
             }
             lines.push("  },".to_string());
         }
@@ -44,6 +54,7 @@ pub fn generate_contract(handlers: &[HandlerInfo], errors: &[super::ErrorInfo]) 
 fn generate_procedure_entry(
     handler: &HandlerInfo,
     error_map: &std::collections::HashMap<&str, &super::ErrorInfo>,
+    schemas: &[super::SchemaEntry],
 ) -> String {
     let key = handler_key(handler.name);
     let method = handler.method;
@@ -61,7 +72,10 @@ fn generate_procedure_entry(
         if schema.is_empty() {
             String::new()
         } else {
-            format!("\n      .input({})", schema)
+            // Merge path params into query schema if path has parameters
+            let merged_schema =
+                merge_path_and_query_schema(path, &schema, handler.path_param_types, schemas);
+            format!("\n      .input({})", merged_schema)
         }
     };
 
@@ -111,6 +125,90 @@ fn generate_procedure_entry(
     )
 }
 
+/// Extract path parameter names from a path template.
+///
+/// # Examples
+///
+/// ```
+/// # use rorpc::codegen::contract::extract_path_params;
+/// assert_eq!(extract_path_params("/planet/{id}"), vec!["id"]);
+/// assert_eq!(extract_path_params("/workspace/{wsId}/project/{projId}"),
+///            vec!["wsId", "projId"]);
+/// assert_eq!(extract_path_params("/files/{+path}"), vec!["path"]); // Catch-all
+/// assert_eq!(extract_path_params("/planet/list"), Vec::<String>::new());
+/// ```
+fn extract_path_params(path: &str) -> Vec<String> {
+    let mut params = Vec::new();
+    let mut chars = path.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut param_name = String::new();
+            while let Some(&next_ch) = chars.peek() {
+                if next_ch == '}' {
+                    chars.next(); // Consume '}'
+                    break;
+                }
+                param_name.push(chars.next().unwrap());
+            }
+            if !param_name.is_empty() {
+                // Handle catch-all syntax: {+path} → path
+                let clean_name = param_name.trim_start_matches('+');
+                params.push(clean_name.to_string());
+            }
+        }
+    }
+
+    params
+}
+
+/// Merge path parameters into query schema using Zod's .extend().
+///
+/// Returns the merged schema as a string. If no path parameters exist,
+/// returns the original query schema unchanged.
+fn merge_path_and_query_schema(
+    path: &str,
+    query_schema: &str,
+    path_param_types: &str,
+    _schemas: &[super::SchemaEntry],
+) -> String {
+    let path_params = extract_path_params(path);
+
+    if path_params.is_empty() {
+        return query_schema.to_string();
+    }
+
+    // Decode comma-separated Rust types: "i32,String" → ["i32", "String"]
+    let param_types: Vec<&str> = if path_param_types.is_empty() {
+        vec![]
+    } else {
+        path_param_types.split(',').collect()
+    };
+
+    // Build path params object with correct Zod types
+    let path_fields: Vec<String> = path_params
+        .iter()
+        .enumerate()
+        .map(|(i, param_name)| {
+            let rust_type = param_types.get(i).copied().unwrap_or("String");
+            let zod_type = super::typescript::rust_type_to_ts_schema(rust_type);
+            let zod_type = if zod_type.is_empty() {
+                "z.string()".to_string()
+            } else {
+                zod_type
+            };
+            format!("{}: {}", param_name, zod_type)
+        })
+        .collect();
+
+    // Use Zod's .extend() with .shape to merge path params with query schema
+    format!(
+        "z.object({{ {} }}).extend({}.shape)",
+        path_fields.join(", "),
+        query_schema
+    )
+}
+
 /// `"/planet/list"` → `"planet"`, `"/ping"` → `""`
 fn extract_namespace(path: &str) -> String {
     let segments: Vec<&str> = path.trim_start_matches('/').splitn(3, '/').collect();
@@ -157,6 +255,47 @@ mod tests {
     }
 
     #[test]
+    fn extract_single_path_param() {
+        assert_eq!(extract_path_params("/planet/{id}"), vec!["id"]);
+    }
+
+    #[test]
+    fn extract_multiple_path_params() {
+        assert_eq!(
+            extract_path_params("/workspace/{wsId}/project/{projId}"),
+            vec!["wsId", "projId"]
+        );
+    }
+
+    #[test]
+    fn extract_catch_all_param() {
+        assert_eq!(extract_path_params("/files/{+path}"), vec!["path"]);
+    }
+
+    #[test]
+    fn no_path_params() {
+        assert_eq!(extract_path_params("/planet/list"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn merges_path_and_query_params() {
+        use super::super::SchemaEntry;
+
+        let schemas = vec![SchemaEntry {
+            type_name: "FindPlanetQuery",
+            zod_ts: "export const FindPlanetQuerySchema = z.object({ id: z.number().int(), q: z.string().optional() });".to_string(),
+        }];
+
+        let merged =
+            merge_path_and_query_schema("/planet/{id}", "FindPlanetQuerySchema", "i32", &schemas);
+
+        // Should use .extend() with .shape to merge path params with query schema
+        assert!(merged.contains("z.object({"));
+        assert!(merged.contains("id: z.number().int()")); // i32 → z.number().int()
+        assert!(merged.contains(".extend(FindPlanetQuerySchema.shape)"));
+    }
+
+    #[test]
     fn contract_contains_handlers() {
         let handlers = vec![
             HandlerInfo {
@@ -169,6 +308,7 @@ mod tests {
                 module_path: "handlers::planet",
                 error_type_name: None,
                 stream_event_type_name: None,
+                path_param_types: "",
             },
             HandlerInfo {
                 name: "ping",
@@ -180,9 +320,10 @@ mod tests {
                 module_path: "handlers",
                 error_type_name: None,
                 stream_event_type_name: None,
+                path_param_types: "",
             },
         ];
-        let output = generate_contract(&handlers, &[]);
+        let output = generate_contract(&handlers, &[], &[]);
         assert!(output.contains("listPlanets"));
         assert!(output.contains("ping"));
         assert!(output.contains("/planet/list"));

@@ -15,6 +15,7 @@ use crate::errors::{Error, Result};
 
 pub const JSON: &str = "Json";
 pub const QUERY: &str = "Query";
+pub const PATH: &str = "Path";
 pub const RESULT: &str = "Result";
 pub const OPTION: &str = "Option";
 pub const VEC: &str = "Vec";

@@ -22,6 +22,10 @@ pub struct HandlerInfo {
     pub module_path: &'static str,
     pub error_type_name: Option<&'static str>,
     pub stream_event_type_name: Option<&'static str>,
+    /// Ordered comma-separated Rust type names for `Path<T>` parameters.
+    /// E.g., `"i32"` for one path param, `"i32,String"` for two.
+    /// Empty string when no `Path<T>` extractors are present.
+    pub path_param_types: &'static str,
 }
 
 /// A collected Zod schema string for a single Rust type.
@@ -116,7 +120,7 @@ impl ContractBuilder {
 
         let real_schemas = typescript::generate_real_schemas(&self.schemas);
         let placeholder_schemas = generate_missing_placeholders(&self.handlers, &real_schema_types);
-        let contract = contract::generate_contract(&self.handlers, &self.errors);
+        let contract = contract::generate_contract(&self.handlers, &self.errors, &self.schemas);
 
         let schema_block = match (real_schemas.is_empty(), placeholder_schemas.is_empty()) {
             (true, true) => String::new(),
@@ -246,6 +250,7 @@ mod tests {
             module_path: "test::handlers",
             error_type_name: None,
             stream_event_type_name: None,
+            path_param_types: "",
         }
     }
 

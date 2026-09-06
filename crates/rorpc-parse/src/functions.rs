@@ -9,7 +9,7 @@ use syn::{FnArg, ItemFn, ReturnType, Type, spanned::Spanned};
 
 use crate::{
     errors::{Error, Result},
-    types::{JSON, QUERY, RESULT, SSE, STATE, try_extract_wrapper},
+    types::{JSON, PATH, QUERY, RESULT, SSE, STATE, try_extract_wrapper},
 };
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,11 @@ pub struct HandlerSignature {
     pub input_type: Option<Type>,
     /// The `T` in a `Query<T>` parameter, if present.
     pub query_type: Option<Type>,
+    /// Ordered list of `(binding_name, rust_type)` pairs from `Path<T>` parameters.
+    ///
+    /// E.g., `Path(id): Path<i32>` → `[("id", Type::i32)]`
+    /// Multiple params: `Path(id): Path<i32>, Path(slug): Path<String>` → `[("id", i32), ("slug", String)]`
+    pub path_params: Vec<(String, Type)>,
     /// The resolved output type:
     /// - `Json<T>` return → `T`
     /// - `Result<Json<T>, E>` return → `T`
@@ -66,6 +71,7 @@ pub fn extract_handler_signature(func: &ItemFn) -> Result<HandlerSignature> {
     let state_type = extract_state_param(&func.sig.inputs);
     let input_type = extract_json_param(&func.sig.inputs);
     let query_type = extract_query_param(&func.sig.inputs);
+    let path_params = extract_path_params(&func.sig.inputs);
 
     Ok(HandlerSignature {
         fn_name,
@@ -73,6 +79,7 @@ pub fn extract_handler_signature(func: &ItemFn) -> Result<HandlerSignature> {
         state_type,
         input_type,
         query_type,
+        path_params,
         output_type,
         error_type,
         is_streaming,
@@ -190,6 +197,44 @@ fn extract_query_param(
     None
 }
 
+/// Collect all `Path<T>` parameters, returning `(binding_name, inner_type)` pairs.
+///
+/// `Path(id): Path<i32>` → `("id", Type::i32)`
+/// Preserves declaration order so types can be zipped with path template params.
+fn extract_path_params(
+    inputs: &syn::punctuated::Punctuated<FnArg, syn::Token![,]>,
+) -> Vec<(String, Type)> {
+    let mut params = Vec::new();
+    for arg in inputs {
+        if let FnArg::Typed(pat_type) = arg
+            && let Some(m) = try_extract_wrapper(&pat_type.ty, PATH)
+            && let Some(inner) = m.first_type()
+        {
+            let name = extract_path_binding_name(&pat_type.pat);
+            params.push((name, inner.clone()));
+        }
+    }
+    params
+}
+
+/// Extract the binding name from a `Path(name)` or `Path { name }` pattern.
+///
+/// `Path(id)` → `"id"`, falls back to `"param"` for unrecognised patterns.
+fn extract_path_binding_name(pat: &syn::Pat) -> String {
+    // Most common form: Path(id) — a TupleStruct pattern
+    if let syn::Pat::TupleStruct(ts) = pat
+        && let Some(first) = ts.elems.first()
+        && let syn::Pat::Ident(id) = first
+    {
+        return id.ident.to_string();
+    }
+    // Plain ident (uncommon but valid)
+    if let syn::Pat::Ident(id) = pat {
+        return id.ident.to_string();
+    }
+    "param".to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -281,6 +326,50 @@ mod tests {
         assert_eq!(type_display(s.input_type.as_ref().unwrap()), "CreatePlanet");
         assert_eq!(type_display(&s.output_type), "Planet");
         assert!(s.error_type.is_some());
+    }
+
+    #[test]
+    fn path_param_extracted() {
+        let f: ItemFn = parse_quote! {
+            async fn handler(Path(id): Path<i32>) -> Json<Planet> {}
+        };
+        let s = sig(f);
+        assert_eq!(s.path_params.len(), 1);
+        assert_eq!(s.path_params[0].0, "id");
+        assert_eq!(type_display(&s.path_params[0].1), "i32");
+    }
+
+    #[test]
+    fn multiple_path_params_extracted() {
+        let f: ItemFn = parse_quote! {
+            async fn handler(Path(ws_id): Path<i32>, Path(proj_id): Path<String>) -> Json<Planet> {}
+        };
+        let s = sig(f);
+        assert_eq!(s.path_params.len(), 2);
+        assert_eq!(s.path_params[0].0, "ws_id");
+        assert_eq!(type_display(&s.path_params[0].1), "i32");
+        assert_eq!(s.path_params[1].0, "proj_id");
+        assert_eq!(type_display(&s.path_params[1].1), "String");
+    }
+
+    #[test]
+    fn path_and_query_params_both_extracted() {
+        let f: ItemFn = parse_quote! {
+            async fn handler(Path(id): Path<i32>, Query(q): Query<SearchQuery>) -> Json<Planet> {}
+        };
+        let s = sig(f);
+        assert_eq!(s.path_params.len(), 1);
+        assert_eq!(s.path_params[0].0, "id");
+        assert_eq!(type_display(s.query_type.as_ref().unwrap()), "SearchQuery");
+    }
+
+    #[test]
+    fn no_path_params_gives_empty_vec() {
+        let f: ItemFn = parse_quote! {
+            async fn handler(State(db): State<Db>) -> Json<Planet> {}
+        };
+        let s = sig(f);
+        assert!(s.path_params.is_empty());
     }
 
     #[test]

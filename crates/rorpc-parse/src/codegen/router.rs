@@ -7,8 +7,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
     Expr, ExprArray, LitStr, Token,
+    parse::{Parse, ParseStream},
 };
 
 // ---------------------------------------------------------------------------
@@ -273,9 +273,11 @@ mod tests {
         let result: syn::Result<RouterArgs> =
             syn::parse_str("\"handlers::planet\", \"handlers::user\"");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("pattern specified twice"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("pattern specified twice")
+        );
     }
 }

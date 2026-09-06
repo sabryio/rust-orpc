@@ -316,6 +316,15 @@ fn try_expand_orpc(args: OrpcArgs, func: ItemFn) -> Result<TokenStream> {
         None => quote! { None },
     };
 
+    // Encode path param types as comma-separated string: "i32,String"
+    // Order matches the path template param order (declaration order in signature)
+    let path_param_types_str = sig
+        .path_params
+        .iter()
+        .map(|(_, ty)| type_display(ty))
+        .collect::<Vec<_>>()
+        .join(",");
+
     let registration = emit_handler_registration(fn_name, method, path, &sig.state_type);
     let schema_registrations = emit_schema_registrations(&func);
 
@@ -333,6 +342,7 @@ fn try_expand_orpc(args: OrpcArgs, func: ItemFn) -> Result<TokenStream> {
                 module_path: ::std::module_path!(),
                 error_type_name: #error_type_token,
                 stream_event_type_name: #stream_event_token,
+                path_param_types: #path_param_types_str,
             }
         }
 

@@ -14,8 +14,8 @@ categories = ["web-programming", "api-bindings"]
 include = ["src/**/*", "README.md", "Cargo.toml"]
 
 [dependencies]
-rorpc-macros = { path = "../rorpc-macros", version = "0.1.0" }
-rorpc-parse = { path = "../rorpc-parse", version = "0.1.0" }
-inventory = "0.3"
-axum = { version = "0.8", features = ["macros"] }
-serde = { version = "1.0", features = ["derive"] }
+rorpc-macros = { workspace = true }
+rorpc-parse = { workspace = true }
+inventory = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }

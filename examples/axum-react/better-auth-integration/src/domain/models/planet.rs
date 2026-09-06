@@ -1,4 +1,4 @@
-use orpc::ZodTs;
+use rorpc::ZodTs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodTs)]

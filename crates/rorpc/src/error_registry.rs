@@ -1,6 +1,6 @@
 //! Error type registration for TypeScript contract generation.
 //!
-//! Error enums annotated with `#[derive(OrpcErrors)]` submit `ErrorRegistration`
+//! Error enums annotated with `#[derive(OrpcError)]` submit `ErrorRegistration`
 //! entries via `inventory`. At contract generation time, these entries are matched
 //! with handlers that return `Result<T, E>` to produce `.errors({...})` in the
 //! TypeScript contract.
@@ -20,7 +20,7 @@ pub struct ErrorVariant {
 
 /// Registration entry for an error enum type.
 ///
-/// Submitted via `inventory::submit!` by the `#[derive(OrpcErrors)]` macro.
+/// Submitted via `inventory::submit!` by the `#[derive(OrpcError)]` macro.
 /// One registration per error type.
 pub struct ErrorRegistration {
     /// Fully qualified type name (e.g. "AppError", "crate::errors::ApiError")

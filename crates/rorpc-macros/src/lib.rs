@@ -1,18 +1,18 @@
-//! Thin proc-macro bridge for [`orpc_parse`].
+//! Thin proc-macro bridge for [`rorpc_parse`].
 //!
 //! This crate contains only proc-macro entry points. All parsing, validation,
-//! and code generation logic lives in `orpc-parse` where it can be tested
+//! and code generation logic lives in `rorpc-parse` where it can be tested
 //! with normal `#[test]` functions.
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Annotate a plain Axum handler to register its metadata with orpc.
+/// Annotate a plain Axum handler to register its metadata with rorpc.
 ///
 /// The function is left completely unchanged — it remains a valid Axum handler.
 /// Two `inventory::submit!` calls are added alongside it:
-/// one for [`orpc::HandlerMetadata`] (used by contract generation) and one for
-/// [`orpc::HandlerRegistration`] (used by [`router!`]).
+/// one for [`rorpc::HandlerMetadata`] (used by contract generation) and one for
+/// [`rorpc::HandlerRegistration`] (used by [`router!`]).
 ///
 /// # Syntax
 ///
@@ -30,14 +30,14 @@ use syn::parse_macro_input;
 /// - `stream_event` — Name of the SSE event type for streaming handlers. Optional.
 #[proc_macro_attribute]
 pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as orpc_parse::codegen::OrpcArgs);
+    let args = parse_macro_input!(attr as rorpc_parse::codegen::OrpcArgs);
     let func = parse_macro_input!(item as syn::ItemFn);
-    orpc_parse::codegen::expand_orpc(args, func).into()
+    rorpc_parse::codegen::expand_orpc(args, func).into()
 }
 
 /// Auto-discovery router macro with optional module path filtering.
 ///
-/// Discovers all `#[orpc]`-annotated handlers via the `inventory` crate and
+/// Discovers all `#[rorpc]`-annotated handlers via the `inventory` crate and
 /// builds an Axum `Router`. Accepts an optional state expression and/or a
 /// module path pattern to restrict which handlers are included.
 ///
@@ -63,8 +63,8 @@ pub fn orpc(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `["handlers::planet", "api::v1"]` — explicit list
 #[proc_macro]
 pub fn router(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as orpc_parse::codegen::RouterArgs);
-    orpc_parse::codegen::expand_router(args).into()
+    let args = parse_macro_input!(input as rorpc_parse::codegen::RouterArgs);
+    rorpc_parse::codegen::expand_router(args).into()
 }
 
 /// Derive macro that generates a `fn zod_ts() -> String` method on structs and enums.
@@ -72,7 +72,7 @@ pub fn router(input: TokenStream) -> TokenStream {
 /// The generated method returns a complete TypeScript block with a Zod schema
 /// and a `z.infer` type alias. An `inventory::submit!` call registers the real
 /// schema so contract generation prefers it over the `z.unknown()` fallback
-/// emitted by `#[orpc]`.
+/// emitted by `#[rorpc]`.
 ///
 /// # Example
 ///
@@ -98,13 +98,13 @@ pub fn router(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ZodTs, attributes(zod))]
 pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
-    match orpc_parse::codegen::derive_zod_ts(input) {
+    match rorpc_parse::codegen::derive_zod_ts(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Derive macro for registering error enum variants with orpc.
+/// Derive macro for registering error enum variants with rorpc.
 ///
 /// Annotate an error enum so `generate_contract()` can emit TypeScript
 /// `.errors({...})` entries. Variant names are converted to `SCREAMING_SNAKE_CASE`.
@@ -112,7 +112,7 @@ pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```rust,ignore
-/// #[derive(OrpcErrors)]
+/// #[derive(OrpcError)]
 /// pub enum AppError {
 ///     NotFound,
 ///     Conflict { reason: String },
@@ -125,10 +125,10 @@ pub fn derive_zod_ts(input: TokenStream) -> TokenStream {
 /// - Unit variants: `NotFound` → `NOT_FOUND: {}`
 /// - Struct variants: `Conflict { reason: String }` → `CONFLICT: { data: z.object({...}) }`
 /// - Tuple variants: `DatabaseError(String)` → `DATABASE_ERROR: { data: z.string() }`
-#[proc_macro_derive(OrpcErrors)]
+#[proc_macro_derive(OrpcError)]
 pub fn derive_orpc_errors(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
-    match orpc_parse::codegen::expand_orpc_errors(input) {
+    match rorpc_parse::codegen::expand_orpc_errors(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

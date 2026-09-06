@@ -1,4 +1,4 @@
-//! AST parsing utilities and code generation for orpc proc macros.
+//! AST parsing utilities and code generation for rorpc proc macros.
 //!
 //! This crate is a regular (non-proc-macro) library so all parsing logic is
 //! independently testable with normal `#[test]` functions.
@@ -14,8 +14,8 @@
 //! # Dependency direction
 //!
 //! ```text
-//! orpc-macros  (proc-macro bridge, lib.rs only)
-//!      └── orpc-parse  (this crate — all implementation logic)
+//! rorpc-macros  (proc-macro bridge, lib.rs only)
+//!      └── rorpc-parse  (this crate — all implementation logic)
 //!               └── syn, quote, proc-macro2, inventory
 //! ```
 

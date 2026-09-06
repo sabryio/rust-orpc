@@ -1,4 +1,4 @@
-//! Code generation for the `#[orpc(method, path)]` attribute macro.
+//! Code generation for the `#[rorpc(method, path)]` attribute macro.
 //!
 //! Parses the attribute arguments, analyses the handler signature, and emits:
 //! - The original function unchanged
@@ -91,7 +91,7 @@ impl Parse for OrpcArgs {
                 Error::missing_required_attr(
                     proc_macro2::Span::call_site(),
                     "method",
-                    "add `method = \"GET\"` to #[orpc]",
+                    "add `method = \"GET\"` to #[rorpc]",
                 )
                 .to_string(),
             )
@@ -103,7 +103,7 @@ impl Parse for OrpcArgs {
                 Error::missing_required_attr(
                     proc_macro2::Span::call_site(),
                     "path",
-                    "add `path = \"/your/route\"` to #[orpc]",
+                    "add `path = \"/your/route\"` to #[rorpc]",
                 )
                 .to_string(),
             )
@@ -165,8 +165,8 @@ fn try_expand_orpc(args: OrpcArgs, func: ItemFn) -> Result<TokenStream> {
     Ok(quote! {
         #func
 
-        ::orpc::inventory::submit! {
-            ::orpc::HandlerMetadata {
+        ::rorpc::inventory::submit! {
+            ::rorpc::HandlerMetadata {
                 name: #fn_name_str,
                 method: #method,
                 path: #path,
@@ -195,8 +195,8 @@ fn emit_handler_registration(
 ) -> TokenStream {
     if let Some(state_ty) = state_type {
         quote! {
-            ::orpc::inventory::submit! {
-                ::orpc::HandlerRegistration {
+            ::rorpc::inventory::submit! {
+                ::rorpc::HandlerRegistration {
                     path: #path,
                     method: #method,
                     factory: |state: ::std::sync::Arc<dyn ::std::any::Any + Send + Sync>| {
@@ -222,8 +222,8 @@ fn emit_handler_registration(
         }
     } else {
         quote! {
-            ::orpc::inventory::submit! {
-                ::orpc::HandlerRegistration {
+            ::rorpc::inventory::submit! {
+                ::rorpc::HandlerRegistration {
                     path: #path,
                     method: #method,
                     factory: |_state: ::std::sync::Arc<dyn ::std::any::Any + Send + Sync>| {
@@ -293,8 +293,8 @@ fn emit_schema_registrations(func: &ItemFn) -> TokenStream {
                 name
             );
             registrations.push(quote! {
-                ::orpc::inventory::submit! {
-                    ::orpc::SchemaRegistration {
+                ::rorpc::inventory::submit! {
+                    ::rorpc::SchemaRegistration {
                         type_name: #name,
                         zod_ts: || #fallback.to_string(),
                         dependent_types: || vec![],

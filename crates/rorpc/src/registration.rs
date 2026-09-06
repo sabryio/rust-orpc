@@ -44,8 +44,8 @@ inventory::collect!(HandlerRegistration);
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// let app = orpc::router_with_state(Arc::new(db));
+/// ```no_run
+/// let app = rorpc::registration::build_router(std::sync::Arc::new(()));
 /// ```
 pub fn build_router(state: Arc<dyn Any + Send + Sync>) -> Router {
     let mut app: Router = Router::new();

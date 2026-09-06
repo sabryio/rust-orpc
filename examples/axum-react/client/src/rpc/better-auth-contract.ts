@@ -1,6 +1,6 @@
 import { createORPCClient, isInferableError, ORPCError } from "@orpc/client";
-import { OpenAPILink } from "@orpc/openapi/fetch";
 import { type RouterContractClient } from "@orpc/contract";
+import { OpenAPILink } from "@orpc/openapi/fetch";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { contract } from "./bindings";
 export { consumeAsyncIterator, getEventMeta } from "@orpc/client";

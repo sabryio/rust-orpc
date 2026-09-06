@@ -7,8 +7,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    Expr, ExprArray, LitStr, Token,
     parse::{Parse, ParseStream},
+    Expr, ExprArray, LitStr, Token,
 };
 
 // ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ pub fn expand_router(args: RouterArgs) -> TokenStream {
         {
             let state: ::std::sync::Arc<dyn ::std::any::Any + Send + Sync> = #state_expr;
             let mut app: ::axum::Router = ::axum::Router::new();
-            for reg in ::orpc::inventory::iter::<::orpc::HandlerRegistration> {
+            for reg in ::rorpc::inventory::iter::<::rorpc::HandlerRegistration> {
                 let matches = #filter;
                 if matches {
                     let route = (reg.factory)(::std::sync::Arc::clone(&state));
@@ -178,7 +178,7 @@ fn build_filter(pattern: &Option<Pattern>) -> TokenStream {
     quote! {
         {
             let mut matches = false;
-            for metadata in ::orpc::inventory::iter::<::orpc::HandlerMetadata> {
+            for metadata in ::rorpc::inventory::iter::<::rorpc::HandlerMetadata> {
                 if metadata.path == reg.path && metadata.method == reg.method {
                     matches = #(#conditions)||*;
                     break;
@@ -273,11 +273,9 @@ mod tests {
         let result: syn::Result<RouterArgs> =
             syn::parse_str("\"handlers::planet\", \"handlers::user\"");
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("pattern specified twice")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("pattern specified twice"));
     }
 }

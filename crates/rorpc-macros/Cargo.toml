@@ -1,0 +1,15 @@
+[package]
+name = "rorpc-macros"
+version = "0.1.0"
+edition = "2021"
+authors = ["rorpc contributors"]
+description = "Procedural macros for rorpc — thin bridge over rorpc-parse"
+license = "MIT OR Apache-2.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+rorpc-parse = { workspace = true }
+syn = { version = "2.0", features = ["full"] }
+proc-macro2 = "1.0"

@@ -7,9 +7,9 @@
 use super::{HandlerInfo, SchemaEntry};
 use std::collections::BTreeSet;
 
-// Re-export runtime conversion utilities from orpc-parse
-pub use orpc_parse::codegen::{base_type_name, rust_type_to_ts_schema, to_schema_name};
-pub use orpc_parse::types::is_primitive_type_name;
+// Re-export runtime conversion utilities from rorpc-parse
+pub use rorpc_parse::codegen::{base_type_name, rust_type_to_ts_schema, to_schema_name};
+pub use rorpc_parse::types::is_primitive_type_name;
 
 /// Generate standard TypeScript import block.
 pub fn generate_imports() -> String {

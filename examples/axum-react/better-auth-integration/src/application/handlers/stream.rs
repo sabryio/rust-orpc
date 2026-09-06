@@ -4,7 +4,7 @@ use axum::{
     response::sse::{Event, KeepAlive},
     response::Sse,
 };
-use orpc::orpc;
+use rorpc::orpc;
 use std::{convert::Infallible, time::Duration};
 use tokio_stream::{iter, Stream, StreamExt};
 

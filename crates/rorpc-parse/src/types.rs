@@ -166,7 +166,7 @@ pub fn is_primitive(ty: &Type) -> bool {
 /// # Examples
 ///
 /// ```
-/// use orpc_parse::types::is_primitive_type_name;
+/// use rorpc_parse::types::is_primitive_type_name;
 ///
 /// assert!(is_primitive_type_name("String"));
 /// assert!(is_primitive_type_name("i32"));
@@ -249,7 +249,7 @@ fn span_of(ty: &Type) -> proc_macro2::Span {
 /// # Examples
 ///
 /// ```
-/// use orpc_parse::types::extract_first_generic_arg_string;
+/// use rorpc_parse::types::extract_first_generic_arg_string;
 ///
 /// assert_eq!(extract_first_generic_arg_string("Result<T, E>"), Some("T".to_string()));
 /// assert_eq!(extract_first_generic_arg_string("Vec<Planet>"), Some("Planet".to_string()));

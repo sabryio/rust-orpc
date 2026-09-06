@@ -1,6 +1,6 @@
-//! Code generation for `#[derive(OrpcErrors)]`.
+//! Code generation for `#[derive(OrpcError)]`.
 //!
-//! Registers error enum variants with orpc via `inventory::submit!` so
+//! Registers error enum variants with rorpc via `inventory::submit!` so
 //! `generate_contract()` can emit TypeScript `.errors({...})` entries.
 
 use proc_macro2::TokenStream;
@@ -16,7 +16,7 @@ use crate::{
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Generate the `#[derive(OrpcErrors)]` expansion.
+/// Generate the `#[derive(OrpcError)]` expansion.
 pub fn expand_orpc_errors(input: DeriveInput) -> Result<TokenStream> {
     let enum_name = &input.ident;
     let enum_name_str = enum_name.to_string();
@@ -26,7 +26,7 @@ pub fn expand_orpc_errors(input: DeriveInput) -> Result<TokenStream> {
         _ => {
             return Err(syn::Error::new_spanned(
                 &input.ident,
-                "#[derive(OrpcErrors)] can only be used on enums",
+                "#[derive(OrpcError)] can only be used on enums",
             )
             .into());
         }
@@ -68,7 +68,7 @@ pub fn expand_orpc_errors(input: DeriveInput) -> Result<TokenStream> {
         };
 
         variant_tokens.push(quote! {
-            ::orpc::ErrorVariant {
+            ::rorpc::ErrorVariant {
                 name: #variant_name_screaming,
                 data_schema: #data_schema,
             }
@@ -77,8 +77,8 @@ pub fn expand_orpc_errors(input: DeriveInput) -> Result<TokenStream> {
 
     Ok(quote! {
         const _: () = {
-            ::orpc::inventory::submit! {
-                ::orpc::ErrorRegistration {
+            ::rorpc::inventory::submit! {
+                ::rorpc::ErrorRegistration {
                     type_name: #enum_name_str,
                     variants: &[
                         #(#variant_tokens),*

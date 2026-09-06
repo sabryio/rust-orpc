@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     {
         println!("📝 Generating TypeScript contract...");
-        orpc::generate_contract()
+        rorpc::generate_contract()
             .output(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../client/src/rpc/bindings.ts"

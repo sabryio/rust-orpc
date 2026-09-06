@@ -244,8 +244,8 @@ fn emit_registration(
         }
 
         const _: () = {
-            ::orpc::inventory::submit! {
-                ::orpc::SchemaRegistration {
+            ::rorpc::inventory::submit! {
+                ::rorpc::SchemaRegistration {
                     type_name: #name_str,
                     zod_ts: #name::zod_ts,
                     dependent_types: #name::dependent_types,
@@ -472,7 +472,7 @@ fn escape_str(s: &str) -> String {
 /// # Examples
 ///
 /// ```
-/// use orpc_parse::codegen::rust_type_to_ts_schema;
+/// use rorpc_parse::codegen::rust_type_to_ts_schema;
 ///
 /// assert_eq!(rust_type_to_ts_schema("Json<Planet>"), "PlanetSchema");
 /// assert_eq!(rust_type_to_ts_schema("Json<Vec<Planet>>"), "z.array(PlanetSchema)");

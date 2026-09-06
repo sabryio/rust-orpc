@@ -1,4 +1,4 @@
-//! # orpc
+//! # rorpc
 //!
 //! Unified facade for handler metadata collection, auto-router construction,
 //! and TypeScript contract generation.
@@ -7,7 +7,7 @@
 //!
 //! ```rust,ignore
 //! use axum::{extract::State, Json};
-//! use orpc::orpc;
+//! use rorpc::orpc;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -22,7 +22,7 @@
 //! async fn main() {
 //!     let app = router!(db);
 //!
-//!     orpc::generate_contract()
+//!     rorpc::generate_contract()
 //!         .output("../client/src/rpc/index.ts")
 //!         .unwrap();
 //!
@@ -45,18 +45,18 @@ pub use schema_registry::SchemaRegistration;
 // Re-export inventory so users don't need to depend on it directly
 pub use inventory;
 
-pub use orpc_macros::{OrpcErrors, ZodTs};
+pub use rorpc_macros::{OrpcError, ZodTs};
 
 // Re-export the #[orpc] attribute macro and router! proc macro
-pub use orpc_macros::orpc;
-pub use orpc_macros::router;
+pub use rorpc_macros::orpc;
+pub use rorpc_macros::router;
 
 /// Begin building a TypeScript contract from all discovered `#[orpc]` handlers.
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// orpc::generate_contract()
+/// ```no_run
+/// rorpc::generate_contract()
 ///     .output("../client/src/rpc/index.ts")
 ///     .unwrap();
 /// ```

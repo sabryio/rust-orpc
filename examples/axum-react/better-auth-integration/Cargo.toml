@@ -1,5 +1,5 @@
 [package]
-name = "better-auth-orpc-example"
+name = "better-auth-rorpc-example"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,8 +14,8 @@ axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors"] }
 
-# orpc
-orpc = { workspace = true }
+# rorpc
+rorpc = { workspace = true }
 
 # Better Auth RS (using alpha version)
 better-auth = { version = "1.0.0-alpha.2", features = ["axum", "seaorm2"] }

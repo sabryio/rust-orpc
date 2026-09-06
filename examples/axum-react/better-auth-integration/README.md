@@ -1,10 +1,11 @@
-# Better Auth + orpc Integration Example
+# Better Auth + rorpc Integration Example
 
 Production-ready example demonstrating Axum handlers with `#[orpc]` annotations alongside [Better Auth](https://www.better-auth.com/) session management for authentication and authorization.
 
 ## Overview
 
 This example shows how to:
+
 - Annotate plain Axum handlers with `#[orpc]` for automatic routing and contract generation
 - Integrate Better Auth RS for authentication with custom extractors
 - Implement protected endpoints using `Session` extractor (401 on missing/invalid session)
@@ -49,7 +50,7 @@ The `main.rs` generates TypeScript contracts before starting the server (dev mod
 ```rust
 #[cfg(debug_assertions)]
 {
-    orpc::generate_contract()
+    rorpc::generate_contract()
         .output("../client/src/rpc/bindings.ts")
         .expect("contract generation failed");
 }
@@ -60,6 +61,7 @@ See [`../client/src/rpc/bindings.ts`](../client/src/rpc/bindings.ts) for the gen
 ### 2. Handler Patterns
 
 **Public endpoint (no auth):**
+
 ```rust
 #[orpc(method = "POST", path = "/planet/list")]
 pub async fn list_planets(
@@ -70,6 +72,7 @@ pub async fn list_planets(
 ```
 
 **Protected endpoint (requires auth):**
+
 ```rust
 #[orpc(method = "POST", path = "/planet/create")]
 pub async fn create_planet(
@@ -82,6 +85,7 @@ pub async fn create_planet(
 ```
 
 **Optional auth:**
+
 ```rust
 #[orpc(method = "POST", path = "/ping")]
 pub async fn ping(
@@ -97,6 +101,7 @@ pub async fn ping(
 ```
 
 **SSE streaming:**
+
 ```rust
 #[orpc(method = "GET", path = "/stream", stream_event = "message")]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>> {
@@ -117,6 +122,7 @@ pub async fn stream_events() -> Sse<impl Stream<Item = Event>> {
 ### 3. Custom Auth Extractors
 
 **`Session` (protected, 401 on failure):**
+
 ```rust
 #[async_trait]
 impl<S> FromRequestParts<S> for Session
@@ -129,24 +135,26 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let state = AppState::from_ref(state);
         let cookies = extract_cookie_jar(parts)?;
-        
+
         let session = state.auth
             .validate_session(&cookies, parts.headers, &parts.uri)
             .await
             .ok_or(StatusCode::UNAUTHORIZED)?;
-            
+
         Ok(Session { session })
     }
 }
 ```
 
 **`OptionalSession` (never fails):**
+
 ```rust
 pub struct OptionalSession(pub Option<Session>);
 // Returns None instead of 401 when unauthenticated
 ```
 
 **`SessionExt` trait:**
+
 ```rust
 pub trait SessionExt {
     fn user_id(&self) -> &str;
@@ -200,7 +208,7 @@ Automatically generates Zod schemas for TypeScript:
 export const PlanetSchema = z.object({
   id: z.number().int(),
   name: z.string(),
-  description: z.string().optional()
+  description: z.string().optional(),
 });
 
 export type Planet = z.infer<typeof PlanetSchema>;
@@ -217,10 +225,11 @@ export type Planet = z.infer<typeof PlanetSchema>;
 
 ```bash
 # From repo root
-cargo run -p better-auth-orpc-example
+cargo run -p better-auth-rorpc-example
 ```
 
 The server:
+
 - Starts on `http://localhost:3001`
 - Generates TypeScript contract to `../client/src/rpc/bindings.ts` (debug mode)
 - Uses in-memory SQLite database with Better Auth schema
@@ -235,6 +244,7 @@ pnpm dev
 ```
 
 The client runs on `http://localhost:3000` with:
+
 - Type-safe RPC calls via `@orpc/client` and TanStack Query
 - Auto-generated Zod schemas for validation
 - Better Auth client integration
@@ -243,18 +253,19 @@ The client runs on `http://localhost:3000` with:
 
 All endpoints prefixed with `/rpc` in production (see `server/axum.rs`).
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/ping` | Optional | Health check, returns auth status |
-| `POST` | `/profile` | Required | Get current user profile |
-| `POST` | `/planet/list` | Public | List all planets |
-| `POST` | `/planet/list-paginated` | Public | Paginated planet list |
-| `POST` | `/planet/find` | Public | Find planet by ID |
-| `POST` | `/planet/create` | Required | Create new planet (protected) |
-| `GET` | `/stream` | Public | SSE stream (5 events, 1s interval) |
-| `GET` | `/stream-async` | Public | SSE stream (async version) |
+| Method | Path                     | Auth     | Description                        |
+| ------ | ------------------------ | -------- | ---------------------------------- |
+| `POST` | `/ping`                  | Optional | Health check, returns auth status  |
+| `POST` | `/profile`               | Required | Get current user profile           |
+| `POST` | `/planet/list`           | Public   | List all planets                   |
+| `POST` | `/planet/list-paginated` | Public   | Paginated planet list              |
+| `POST` | `/planet/find`           | Public   | Find planet by ID                  |
+| `POST` | `/planet/create`         | Required | Create new planet (protected)      |
+| `GET`  | `/stream`                | Public   | SSE stream (5 events, 1s interval) |
+| `GET`  | `/stream-async`          | Public   | SSE stream (async version)         |
 
 Better Auth endpoints are mounted at `/` (no `/rpc` prefix):
+
 - `POST /api/sign-in/email-password`
 - `POST /api/sign-up/email-password`
 - `POST /api/sign-out`
@@ -273,12 +284,12 @@ export type Planet = z.infer<typeof PlanetSchema>;
 export const contract = {
   ping: oc.meta(openapi({ method: "POST", path: "/ping" }))
     .output(z.string()),
-  
+
   planet: {
     listPlanets: oc.meta(openapi({ method: "POST", path: "/planet/list" }))
       .output(z.array(PlanetSchema))
       .errors({ NOT_FOUND: {}, ... }),
-    
+
     createPlanet: oc.meta(openapi({ method: "POST", path: "/planet/create" }))
       .input(CreatePlanetInputSchema)
       .output(PlanetSchema)
@@ -305,7 +316,7 @@ const link = new OpenAPILink(contract, {
   fetch(url, init) {
     return globalThis.fetch(url, {
       ...init,
-      credentials: "include",  // Send cookies for auth
+      credentials: "include", // Send cookies for auth
     });
   },
 });
@@ -317,22 +328,23 @@ export const orpc = createTanstackQueryUtils(client);
 **Usage in React components:**
 
 ```tsx
-import { orpc } from "#/rpc/better-auth-contract";
+import { orpc } from "@/rpc/better-auth-contract";
+import { useQuery, useMutation } from "@tanstack/react-query";
 
 function PlanetList() {
-  const { data, isLoading } = orpc.planet.listPlanets.useQuery();
-  
+  const { data, isLoading } = useQuery(orpc.planet.listPlanets.queryOptions());
+
   if (isLoading) return <div>Loading...</div>;
   return <ul>{data?.map(p => <li key={p.id}>{p.name}</li>)}</ul>;
 }
 
 function CreatePlanet() {
-  const mutation = orpc.planet.createPlanet.useMutation();
-  
+  const mutation = useMutation(orpc.planet.createPlanet.mutationOptions());
+
   const handleSubmit = async (name: string) => {
-    await mutation.mutateAsync({ name, description: null });
+    await mutation.mutateAsync({ name, description: undefined });
   };
-  
+
   return <form onSubmit={...}>...</form>;
 }
 ```
@@ -340,7 +352,8 @@ function CreatePlanet() {
 ## Key Dependencies
 
 **Backend:**
-- `orpc` — Macros and contract generation
+
+- `rorpc` — Macros and contract generation
 - `axum` 0.8 — Web framework
 - `better-auth` 1.0.0-alpha.2 — Authentication (with `axum` and `seaorm2` features)
 - `tower-http` — CORS middleware
@@ -348,6 +361,7 @@ function CreatePlanet() {
 - `serde` — Serialization
 
 **Frontend:**
+
 - `@orpc/client` — Type-safe RPC client
 - `@orpc/contract` — Contract definitions
 - `@orpc/openapi` — OpenAPI-compatible link
@@ -367,6 +381,7 @@ function CreatePlanet() {
 ## What Makes This Different
 
 Unlike traditional RPC frameworks:
+
 - ✅ **No code generation step** — Write Rust handlers, get TypeScript contracts automatically
 - ✅ **Plain Axum handlers** — Works with existing Axum middleware, extractors, and patterns
 - ✅ **Compile-time safety** — Handler signatures validated at compile time

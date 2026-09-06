@@ -10,7 +10,7 @@ pub async fn run_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Nest both routers (both already have their state applied)
     let app = Router::new()
-        .nest("/rpc", orpc::router!(state))
+        .nest("/rpc", rorpc::router!(state))
         .nest("/api/auth", auth.clone().axum_router().with_state(auth))
         .layer(
             CorsLayer::new()

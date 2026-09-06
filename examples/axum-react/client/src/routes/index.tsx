@@ -49,6 +49,7 @@ function Home() {
             <div className="space-y-6">
               <PlanetFind />
               <CreatePlanet />
+              <DeletePlanet />
             </div>
           </div>
         </section>
@@ -320,17 +321,6 @@ function CreatePlanet() {
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
           {isInferableError(mutation.error) ? (
             <>
-              {mutation.error.code === "BAD_REQUEST" && (
-                <div className="flex items-start gap-2 text-red-800">
-                  <span className="text-red-600">⚠️</span>
-                  <div>
-                    <p className="font-medium">Invalid Input</p>
-                    <p className="text-red-700 mt-1">
-                      {mutation.error.message}
-                    </p>
-                  </div>
-                </div>
-              )}
               {mutation.error.code === "INTERNAL" && (
                 <div className="flex items-start gap-2 text-red-800">
                   <span className="text-red-600">❌</span>
@@ -342,10 +332,88 @@ function CreatePlanet() {
                   </div>
                 </div>
               )}
-              {mutation.error.code !== "BAD_REQUEST" &&
-                mutation.error.code !== "INTERNAL" && (
-                  <p className="text-red-800">{mutation.error.message}</p>
-                )}
+              {mutation.error.code !== "INTERNAL" && (
+                <p className="text-red-800">{mutation.error.message}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-red-800">
+              An unexpected error occurred: {String(mutation.error)}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeletePlanet() {
+  const qc = useQueryClient();
+  const [id, setId] = useState<number>(1);
+
+  const mutation = useMutation(
+    orpc.planet.deletePlanet.mutationOptions({
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.planet.key() });
+      },
+    }),
+  );
+
+  const handleDelete = (e: React.FormEvent) => {
+    e.preventDefault();
+    mutation.mutate({ id });
+  };
+
+  return (
+    <div className="bg-white border border-neutral-200 rounded-lg p-6">
+      <h3 className="text-sm font-semibold text-neutral-900 mb-4">
+        Delete Planet
+      </h3>
+
+      <form onSubmit={handleDelete} className="space-y-4">
+        <div>
+          <input
+            type="number"
+            value={id}
+            min={1}
+            onChange={(e) => setId(Number(e.target.value))}
+            className="w-full px-3 py-2 text-sm border border-neutral-300 rounded-md placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent"
+            placeholder="Planet ID"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="w-full px-4 py-2.5 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {mutation.isPending ? "Deleting…" : "Delete"}
+        </button>
+      </form>
+
+      {mutation.isSuccess && (
+        <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-md">
+          <p className="text-sm text-emerald-800 font-medium">
+            Planet #{id} deleted successfully
+          </p>
+        </div>
+      )}
+
+      {mutation.error && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          {isInferableError(mutation.error) ? (
+            <>
+              {mutation.error.code === "NOT_FOUND" && (
+                <div className="flex items-start gap-2 text-red-800">
+                  <span className="text-red-600">⚠️</span>
+                  <div>
+                    <p className="font-medium">Planet Not Found</p>
+                    <p className="text-red-700 mt-1">
+                      {mutation.error.message}
+                    </p>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <p className="text-red-800">

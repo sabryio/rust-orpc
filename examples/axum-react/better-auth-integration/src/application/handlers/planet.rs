@@ -60,3 +60,18 @@ pub async fn create_planet(
         .map(Json)
         .map_err(|e| AppError::Internal { msg: e.to_string() })
 }
+
+/// Protected — `CurrentSession` returns 401 automatically if not authenticated.
+#[orpc(method = "DELETE", path = "/planet/delete")]
+pub async fn delete_planet(
+    State(state): State<AppState>,
+    _session: Session,
+    Json(input): Json<DeletePlanetInput>,
+) -> Result<Json<()>, AppError> {
+    state
+        .planet_repo
+        .delete(input)
+        .await
+        .map(Json)
+        .map_err(|_| AppError::NotFound)
+}

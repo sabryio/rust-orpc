@@ -111,6 +111,14 @@ pub async fn create_planet(
     Json(input): Json<CreatePlanetInput>,
 ) -> Result<Json<Planet>, AppError>
 
+// DELETE — with JSON body (Json<T> extractor), protected endpoint
+#[orpc(method = "DELETE", path = "/planet/delete")]
+pub async fn delete_planet(
+    State(s): State<AppState>,
+    _session: Session,
+    Json(input): Json<DeletePlanetInput>,
+) -> Result<Json<()>, AppError>
+
 // SSE streaming — stream_event takes a type path (no quotes)
 #[orpc(method = "GET", path = "/stream", stream_event = StreamEvent)]
 pub async fn stream_events() -> Sse<impl Stream<Item = Event>>
@@ -120,7 +128,7 @@ pub async fn stream_events() -> Sse<impl Stream<Item = Event>>
 
 **Request body vs query parameters:**
 
-- **POST/PUT/PATCH:** Use `Json<T>` extractor → data sent as JSON request body
+- **POST/PUT/PATCH/DELETE:** Use `Json<T>` extractor → data sent as JSON request body
 - **GET:** Use `Query<T>` extractor → data sent as URL query parameters
 - Both render as `.input()` in the TypeScript contract
 
@@ -220,6 +228,15 @@ const mutation = useMutation(
   }),
 );
 
+// Delete mutation (also requires authentication)
+const deleteMutation = useMutation(
+  orpc.planet.deletePlanet.mutationOptions({
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: orpc.planet.key() }),
+  }),
+);
+deleteMutation.mutate({ id: 1 });
+
 // Infinite scroll
 const { data, fetchNextPage } = useInfiniteQuery(
   orpc.planet.listPlanetsPaginated.infiniteOptions({
@@ -255,7 +272,7 @@ pnpm dev
 ## Testing
 
 ```bash
-# All tests including rorpc-parse unit tests (64+)
+# All tests including rorpc-parse unit tests (67+)
 cargo test --workspace
 
 # rorpc-parse only (fast, no proc-macro overhead)

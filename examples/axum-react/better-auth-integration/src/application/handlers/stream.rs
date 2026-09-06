@@ -10,57 +10,73 @@ use tokio_stream::{iter, Stream, StreamExt};
 
 use crate::{domain::models::planet::StreamEvent, infrastructure::context::AppState};
 
+// ---------------------------------------------------------------------------
+// SSE helpers
+// ---------------------------------------------------------------------------
+
+fn sse_flush() -> Result<Event, Infallible> {
+    Ok(Event::default().comment(""))
+}
+
+fn sse_close() -> Result<Event, Infallible> {
+    Ok(Event::default().event("close").data(""))
+}
+
+fn sse_message<T: serde::Serialize>(id: impl ToString, payload: &T) -> Result<Event, Infallible> {
+    let data = serde_json::to_string(payload).unwrap_or_default();
+    Ok(Event::default()
+        .event("message")
+        .id(id.to_string())
+        .retry(Duration::from_secs(5))
+        .data(data))
+}
+
+/// Wraps an inner stream with a flush header and close trailer.
+/// Caller builds the `Sse` response to allow customisation of keep-alive etc.
+fn sse_stream<S>(inner: S) -> impl Stream<Item = Result<Event, Infallible>> + Send + 'static
+where
+    S: Stream<Item = Result<Event, Infallible>> + Send + 'static,
+{
+    iter([sse_flush()]).chain(inner).chain(iter([sse_close()]))
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
 #[orpc(method = "GET", path = "/stream", stream_event = StreamEvent)]
 pub async fn stream_events(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    // Initial empty comment flushes headers so the client connects immediately
-    let initial = tokio_stream::iter([Ok(Event::default().comment(""))]);
-
-    let events = iter(0u32..)
-        .throttle(Duration::from_secs(1))
-        .take(10)
-        .map(|count| {
-            let payload = serde_json::to_string(&StreamEvent {
-                message: format!("Event #{count}"),
-                count,
-            })
-            .unwrap();
-            Ok(Event::default()
-                .event("message")
-                .id(count.to_string())
-                .retry(Duration::from_secs(5))
-                .data(payload))
-        })
-        .chain(tokio_stream::iter([Ok(Event::default()
-            .event("close")
-            .data(""))]));
-
-    Sse::new(initial.chain(events))
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
+    Sse::new(sse_stream(
+        iter(0u32..)
+            .throttle(Duration::from_secs(1))
+            .take(10)
+            .map(|count| {
+                sse_message(
+                    count,
+                    &StreamEvent {
+                        message: format!("Event #{count}"),
+                        count,
+                    },
+                )
+            }),
+    ))
+    .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
 }
 
 #[orpc(method = "GET", path = "/stream-async", stream_event = StreamEvent)]
 pub async fn stream_events_async(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let s = stream! {
-        yield Ok(Event::default().comment(""));
+    Sse::new(sse_stream(stream! {
         for i in 0u32..15 {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let payload = serde_json::to_string(&StreamEvent {
+            yield sse_message(i, &StreamEvent {
                 message: format!("Async Stream Event #{i}"),
                 count: i,
-            })
-            .unwrap();
-            yield Ok(Event::default()
-                .event("message")
-                .id(i.to_string())
-                .retry(Duration::from_secs(5))
-                .data(payload));
+            });
         }
-        yield Ok(Event::default().event("close").data(""));
-    };
-
-    Sse::new(s).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
+    }))
+    .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
 }

@@ -1,6 +1,6 @@
 use crate::domain::models::planet::{
-    CreatePlanetInput, FindPlanetInput, ListPlanetsPaginatedInput, ListPlanetsPaginatedOutput,
-    Planet,
+    CreatePlanetInput, DeletePlanetInput, FindPlanetInput, ListPlanetsPaginatedInput,
+    ListPlanetsPaginatedOutput, Planet,
 };
 use async_trait::async_trait;
 
@@ -15,4 +15,5 @@ pub trait PlanetRepository: Send + Sync {
     ) -> Result<ListPlanetsPaginatedOutput, RepoError>;
     async fn find(&self, input: FindPlanetInput) -> Result<Planet, RepoError>;
     async fn create(&self, input: CreatePlanetInput) -> Result<Planet, RepoError>;
+    async fn delete(&self, input: DeletePlanetInput) -> Result<(), RepoError>;
 }

@@ -14,6 +14,11 @@ pub struct FindPlanetInput {
 }
 
 #[derive(Debug, Deserialize, Serialize, ZodTs)]
+pub struct DeletePlanetInput {
+    pub id: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, ZodTs)]
 pub struct CreatePlanetInput {
     pub name: String,
     pub description: Option<String>,

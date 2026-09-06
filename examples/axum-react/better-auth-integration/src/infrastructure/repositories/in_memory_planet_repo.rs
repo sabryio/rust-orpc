@@ -69,6 +69,16 @@ impl PlanetRepository for InMemoryPlanetRepository {
         planets.push(planet.clone());
         Ok(planet)
     }
+
+    async fn delete(&self, input: DeletePlanetInput) -> Result<(), RepoError> {
+        let mut planets = self.planets.write().await;
+        let initial_len = planets.len();
+        planets.retain(|p| p.id != input.id);
+        if planets.len() == initial_len {
+            return Err(format!("Planet {} not found", input.id).into());
+        }
+        Ok(())
+    }
 }
 
 pub fn sample_planets() -> Vec<Planet> {

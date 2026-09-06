@@ -6,12 +6,6 @@ import { oc } from "@orpc/contract";
 import { openapi } from "@orpc/openapi";
 import { asyncIteratorObject } from "@orpc/contract";
 
-export const DeletePlanetInputSchema = z.object({
-  id: z.number().int()
-});
-
-export type DeletePlanetInput = z.infer<typeof DeletePlanetInputSchema>;
-
 export const CreatePlanetInputSchema = z.object({
   name: z.string(),
   description: z.string().optional()
@@ -34,18 +28,18 @@ export const ListPlanetsPaginatedOutputSchema = z.object({
 
 export type ListPlanetsPaginatedOutput = z.infer<typeof ListPlanetsPaginatedOutputSchema>;
 
+export const DeletePlanetInputSchema = z.object({
+  id: z.number().int()
+});
+
+export type DeletePlanetInput = z.infer<typeof DeletePlanetInputSchema>;
+
 export const ListPlanetsPaginatedInputSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int().optional()
 });
 
 export type ListPlanetsPaginatedInput = z.infer<typeof ListPlanetsPaginatedInputSchema>;
-
-export const FindPlanetQuerySchema = z.object({
-  q: z.string().optional()
-});
-
-export type FindPlanetQuery = z.infer<typeof FindPlanetQuerySchema>;
 
 export const EventDataSchema = z.object({
   message: z.string(),
@@ -54,33 +48,39 @@ export const EventDataSchema = z.object({
 
 export type EventData = z.infer<typeof EventDataSchema>;
 
+export const FindPlanetQuerySchema = z.object({
+  q: z.string().optional()
+});
+
+export type FindPlanetQuery = z.infer<typeof FindPlanetQuerySchema>;
+
 export const contract = {
-  getProfile: oc
-      .meta(openapi({ method: "GET", path: "/profile" }))
-      .output(z.any()),
-  ping: oc
-      .meta(openapi({ method: "GET", path: "/ping" }))
-      .output(z.string()),
-  streamEventsAsync: oc
-      .meta(openapi({ method: "GET", path: "/stream-async" }))
-      .output(asyncIteratorObject(EventDataSchema)),
-  streamEvents: oc
-      .meta(openapi({ method: "GET", path: "/stream" }))
-      .output(asyncIteratorObject(EventDataSchema)),
-  planet: {
-    deletePlanet: oc
-      .meta(openapi({ method: "DELETE", path: "/planet/delete" }))
-      .input(DeletePlanetInputSchema)
+  createPlanet: oc
+      .meta(openapi({ method: "POST", path: "/planet" }))
+      .input(CreatePlanetInputSchema)
+      .output(PlanetSchema)
       .errors({
         NOT_FOUND: {},
         INTERNAL: {
           data: z.object({ msg: z.string() })
         }
       }),
-    createPlanet: oc
-      .meta(openapi({ method: "POST", path: "/planet/create" }))
-      .input(CreatePlanetInputSchema)
-      .output(PlanetSchema)
+  streamEventsAsync: oc
+      .meta(openapi({ method: "GET", path: "/stream-async" }))
+      .output(asyncIteratorObject(EventDataSchema)),
+  streamEvents: oc
+      .meta(openapi({ method: "GET", path: "/stream" }))
+      .output(asyncIteratorObject(EventDataSchema)),
+  ping: oc
+      .meta(openapi({ method: "GET", path: "/ping" }))
+      .output(z.string()),
+  getProfile: oc
+      .meta(openapi({ method: "GET", path: "/profile" }))
+      .output(z.any()),
+  planet: {
+    deletePlanet: oc
+      .meta(openapi({ method: "DELETE", path: "/planet/{id}" }))
+      .input(z.object({ id: z.number().int() }))
       .errors({
         NOT_FOUND: {},
         INTERNAL: {

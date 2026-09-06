@@ -48,7 +48,7 @@ pub async fn find_planet(
 }
 
 /// Protected — `CurrentSession` returns 401 automatically if not authenticated.
-#[rorpc::post("/planet/create")]
+#[rorpc::post("/planet")]
 pub async fn create_planet(
     State(state): State<AppState>,
     _session: Session,
@@ -63,15 +63,15 @@ pub async fn create_planet(
 }
 
 /// Protected — `CurrentSession` returns 401 automatically if not authenticated.
-#[rorpc::delete("/planet/delete")]
+#[rorpc::delete("/planet/{id}")]
 pub async fn delete_planet(
     State(state): State<AppState>,
     _session: Session,
-    Json(input): Json<DeletePlanetInput>,
+    Path(id): Path<i32>,
 ) -> Result<Json<()>, AppError> {
     state
         .planet_repo
-        .delete(input)
+        .delete(DeletePlanetInput { id })
         .await
         .map(Json)
         .map_err(|_| AppError::NotFound)

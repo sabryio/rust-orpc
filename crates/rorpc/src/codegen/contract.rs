@@ -70,9 +70,16 @@ fn generate_procedure_entry(
         };
         let schema = super::typescript::rust_type_to_ts_schema(type_name);
         if schema.is_empty() {
-            String::new()
+            // No body/query schema — but still need .input() if path params exist
+            let path_only =
+                merge_path_and_query_schema(path, "", handler.path_param_types, schemas);
+            if path_only.is_empty() {
+                String::new()
+            } else {
+                format!("\n      .input({})", path_only)
+            }
         } else {
-            // Merge path params into query schema if path has parameters
+            // Merge path params into body/query schema if path has parameters
             let merged_schema =
                 merge_path_and_query_schema(path, &schema, handler.path_param_types, schemas);
             format!("\n      .input({})", merged_schema)
@@ -201,12 +208,15 @@ fn merge_path_and_query_schema(
         })
         .collect();
 
-    // Use Zod's .extend() with .shape to merge path params with query schema
-    format!(
-        "z.object({{ {} }}).extend({}.shape)",
-        path_fields.join(", "),
-        query_schema
-    )
+    let path_object = format!("z.object({{ {} }})", path_fields.join(", "));
+
+    if query_schema.is_empty() {
+        // Path params only — no query/body schema to extend
+        path_object
+    } else {
+        // Use Zod's .extend() with .shape to merge path params with query schema
+        format!("{}.extend({}.shape)", path_object, query_schema)
+    }
 }
 
 /// `"/planet/list"` → `"planet"`, `"/ping"` → `""`

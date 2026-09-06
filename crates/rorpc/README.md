@@ -34,12 +34,12 @@ pub struct Planet {
     pub description: Option<String>,
 }
 
-#[rorpc(method = "POST", path = "/planet/list")]
+#[orpc(method = "POST", path = "/planet/list")]
 async fn list_planets(State(db): State<Database>) -> Json<Vec<Planet>> {
     Json(db.list().await)
 }
 
-#[rorpc(method = "POST", path = "/planet/find")]
+#[orpc(method = "POST", path = "/planet/find")]
 async fn find_planet(
     State(db): State<Database>,
     Json(id): Json<i32>,
@@ -51,7 +51,7 @@ async fn find_planet(
 async fn main() {
     let app = router!(state);
 
-    rorpc::generate_contract()
+    orpc::generate_contract()
         .output("../client/src/rpc/index.ts")
         .unwrap();
 
@@ -61,36 +61,36 @@ async fn main() {
 
 ## Macros
 
-### `#[rorpc]`
+### `#[orpc]`
 
 Annotate Axum handlers to register metadata. The function remains a valid Axum handler.
 
 **Required attributes:** `method`, `path`  
-**Optional attributes:** `stream_event` (SSE handlers)
+**Optional attributes:** `data` (SSE handlers)
 
 **Supported handler signatures:**
 
 ```rust
 // State only
-#[rorpc(method = "GET", path = "/ping")]
+#[orpc(method = "GET", path = "/ping")]
 async fn ping(State(s): State<AppState>) -> Json<String>
 
 // Input + State
-#[rorpc(method = "POST", path = "/create")]
+#[orpc(method = "POST", path = "/create")]
 async fn create(State(db): State<Db>, Json(data): Json<CreateInput>) -> Json<Planet>
 
 // With Result for typed errors
-#[rorpc(method = "POST", path = "/find")]
+#[orpc(method = "POST", path = "/find")]
 async fn find(State(db): State<Db>, Json(id): Json<i32>) -> Result<Json<Planet>, AppError>
 
 // Streaming (SSE)
-#[rorpc(method = "GET", path = "/events", stream_event = "message")]
+#[orpc(method = "GET", path = "/events", data = StreamEvent)]
 async fn stream() -> Sse<impl Stream<Item = Event>>
 ```
 
 ### `router!`
 
-Auto-discover all `#[rorpc]`-annotated handlers and build an Axum `Router`.
+Auto-discover all `#[orpc]`-annotated handlers and build an Axum `Router`.
 
 ```rust
 let app = router!();                            // all handlers, no state

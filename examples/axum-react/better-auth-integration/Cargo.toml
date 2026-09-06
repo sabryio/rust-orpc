@@ -3,6 +3,9 @@ name = "better-auth-rorpc-example"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.rorpc]
+client_path = "../client/src/rpc/bindings.ts"
+
 [dependencies]
 # Core
 tokio = { version = "1.53", features = ["full"] }

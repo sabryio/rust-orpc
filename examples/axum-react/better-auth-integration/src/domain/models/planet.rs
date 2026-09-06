@@ -37,7 +37,7 @@ pub struct ListPlanetsPaginatedOutput {
 }
 
 #[derive(Debug, Serialize, ZodTs)]
-pub struct StreamEvent {
+pub struct EventData {
     pub message: String,
     pub count: u32,
 }

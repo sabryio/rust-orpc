@@ -35,7 +35,7 @@ async fn list_planets(State(db): State<Db>) -> Json<Vec<Planet>> {
 
 **Optional attributes:**
 
-- `stream_event` — SSE event type name for streaming handlers
+- `data` — SSE data payload type for streaming handlers
 
 ### `router!`
 

@@ -21,7 +21,15 @@ use crate::{
 };
 
 // ---------------------------------------------------------------------------
-// OrpcArgs — parsed from #[orpc(method = "...", path = "...", stream_event = TypePath)]
+// Attribute name constants — centralized for easy renaming
+// ---------------------------------------------------------------------------
+
+const ATTR_METHOD: &str = "method";
+const ATTR_PATH: &str = "path";
+const ATTR_DATA: &str = "data";
+
+// ---------------------------------------------------------------------------
+// OrpcArgs — parsed from #[orpc(method = "...", path = "...", data = TypePath)]
 // ---------------------------------------------------------------------------
 
 /// Parsed arguments for the `#[orpc(...)]` attribute.
@@ -31,7 +39,7 @@ pub struct OrpcArgs {
     pub stream_event: Option<syn::Type>,
 }
 
-const VALID_KEYS: &[&str] = &["method", "path", "stream_event"];
+const VALID_KEYS: &[&str] = &[ATTR_METHOD, ATTR_PATH, ATTR_DATA];
 
 impl Parse for OrpcArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -55,7 +63,7 @@ impl Parse for OrpcArgs {
                 .unwrap_or_else(proc_macro2::Span::call_site);
 
             match key.as_str() {
-                "method" => {
+                ATTR_METHOD => {
                     if let Expr::Lit(ExprLit {
                         lit: Lit::Str(s), ..
                     }) = &pair.value
@@ -74,7 +82,7 @@ impl Parse for OrpcArgs {
                         ));
                     }
                 }
-                "path" => {
+                ATTR_PATH => {
                     if let Expr::Lit(ExprLit {
                         lit: Lit::Str(s), ..
                     }) = &pair.value
@@ -93,8 +101,8 @@ impl Parse for OrpcArgs {
                         ));
                     }
                 }
-                "stream_event" => {
-                    // Accept a type path: stream_event = StreamEvent
+                ATTR_DATA => {
+                    // Accept a type path: data = StreamEvent
                     if let Expr::Path(expr_path) = &pair.value {
                         let type_path = syn::TypePath {
                             attrs: vec![],
@@ -105,7 +113,10 @@ impl Parse for OrpcArgs {
                     } else {
                         return Err(syn::Error::new(
                             span,
-                            "stream_event must be a type path (e.g., StreamEvent or module::StreamEvent)",
+                            format!(
+                                "{} must be a type path (e.g., StreamEventData or module::StreamEventData)",
+                                ATTR_DATA
+                            ),
                         ));
                     }
                 }
@@ -123,8 +134,8 @@ impl Parse for OrpcArgs {
                 proc_macro2::Span::call_site(),
                 Error::missing_required_attr(
                     proc_macro2::Span::call_site(),
-                    "method",
-                    "add `method = \"GET\"` to #[rorpc]",
+                    ATTR_METHOD,
+                    "add `method = \"GET\"` to #[orpc]",
                 )
                 .to_string(),
             )
@@ -135,8 +146,8 @@ impl Parse for OrpcArgs {
                 proc_macro2::Span::call_site(),
                 Error::missing_required_attr(
                     proc_macro2::Span::call_site(),
-                    "path",
-                    "add `path = \"/your/route\"` to #[rorpc]",
+                    ATTR_PATH,
+                    "add `path = \"/your/route\"` to #[orpc]",
                 )
                 .to_string(),
             )
@@ -370,10 +381,10 @@ mod tests {
     use syn::parse_quote;
 
     #[test]
-    fn parse_stream_event_type_path() {
-        // Test that stream_event = StreamEvent (without quotes) parses correctly
+    fn parse_data_type_path() {
+        // Test that data = StreamEvent (without quotes) parses correctly
         let args: OrpcArgs = syn::parse_quote! {
-            method = "GET", path = "/stream", stream_event = StreamEvent
+            method = "GET", path = "/stream", data = StreamEvent
         };
 
         assert_eq!(args.method, "GET");
@@ -387,10 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_stream_event_qualified_path() {
-        // Test that stream_event = crate::models::StreamEvent works
+    fn parse_data_qualified_path() {
+        // Test that data = crate::models::StreamEvent works
         let args: OrpcArgs = syn::parse_quote! {
-            method = "GET", path = "/stream", stream_event = crate::models::StreamEvent
+            method = "GET", path = "/stream", data = crate::models::StreamEvent
         };
 
         assert!(args.stream_event.is_some());
@@ -400,8 +411,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_without_stream_event() {
-        // Test that stream_event is optional
+    fn parse_without_data() {
+        // Test that data is optional
         let args: OrpcArgs = syn::parse_quote! {
             method = "POST", path = "/create"
         };
@@ -412,11 +423,10 @@ mod tests {
     }
 
     #[test]
-    fn stream_event_type_converts_to_string_literal() {
-        // This is the critical test for the bug fix
-        // Verify that when we generate the metadata, stream_event becomes a string literal
+    fn data_type_converts_to_string_literal() {
+        // Verify that when we generate the metadata, data becomes a string literal
         let args: OrpcArgs = syn::parse_quote! {
-            method = "GET", path = "/stream", stream_event = StreamEvent
+            method = "GET", path = "/stream", data = StreamEvent
         };
 
         let func: syn::ItemFn = parse_quote! {

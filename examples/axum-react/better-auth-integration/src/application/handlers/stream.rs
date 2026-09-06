@@ -8,7 +8,7 @@ use rorpc::orpc;
 use std::{convert::Infallible, time::Duration};
 use tokio_stream::{iter, Stream, StreamExt};
 
-use crate::{domain::models::planet::StreamEvent, infrastructure::context::AppState};
+use crate::{domain::models::planet::EventData, infrastructure::context::AppState};
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -44,7 +44,7 @@ where
 // Handlers
 // ---------------------------------------------------------------------------
 
-#[orpc(method = "GET", path = "/stream", stream_event = StreamEvent)]
+#[orpc(method = "GET", path = "/stream", data = StreamEvent)]
 pub async fn stream_events(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -55,7 +55,7 @@ pub async fn stream_events(
             .map(|count| {
                 sse_message(
                     count,
-                    &StreamEvent {
+                    &EventData {
                         message: format!("Event #{count}"),
                         count,
                     },
@@ -65,14 +65,14 @@ pub async fn stream_events(
     .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text(""))
 }
 
-#[orpc(method = "GET", path = "/stream-async", stream_event = StreamEvent)]
+#[orpc(method = "GET", path = "/stream-async", data = EventData)]
 pub async fn stream_events_async(
     State(_state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(sse_stream(stream! {
         for i in 0u32..15 {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            yield sse_message(i, &StreamEvent {
+            yield sse_message(i, &EventData {
                 message: format!("Async Stream Event #{i}"),
                 count: i,
             });

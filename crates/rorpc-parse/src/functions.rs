@@ -35,7 +35,7 @@ pub struct HandlerSignature {
     /// The resolved output type:
     /// - `Json<T>` return → `T`
     /// - `Result<Json<T>, E>` return → `T`
-    /// - `Sse<...>` return → unit `()` (output type comes from `stream_event` attribute)
+    /// - `Sse<...>` return → unit `()` (output type comes from `data` attribute)
     pub output_type: Type,
     /// The `E` in `Result<_, E>`, if present.
     pub error_type: Option<Type>,
@@ -105,7 +105,7 @@ fn extract_return_types(
         ReturnType::Type(_, ty) => ty.as_ref(),
     };
 
-    // Case 1: Sse<...> — streaming handler; output type comes from stream_event attribute
+    // Case 1: Sse<...> — streaming handler; output type comes from data attribute
     if try_extract_wrapper(ty, SSE).is_some() {
         let unit: Type = syn::parse_quote! { () };
         return Ok((unit, None, true));

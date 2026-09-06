@@ -32,9 +32,7 @@ pub enum ErrorKind {
         suggestion: String,
     },
     /// A wrapper type has no generic arguments (e.g. bare `Json` instead of `Json<T>`).
-    EmptyGenericArgs {
-        wrapper: &'static str,
-    },
+    EmptyGenericArgs { wrapper: &'static str },
     /// A type that orpc does not know how to handle appears in a handler signature.
     UnsupportedType {
         name: String,
@@ -59,9 +57,7 @@ pub enum ErrorKind {
         suggestion: String,
     },
     /// A handler function has no return type annotation.
-    MissingReturnType {
-        fn_name: String,
-    },
+    MissingReturnType { fn_name: String },
     /// A handler function's signature does not match the expected shape.
     InvalidHandlerSig {
         fn_name: String,
@@ -116,12 +112,7 @@ impl Error {
         }
     }
 
-    pub fn invalid_attr_value(
-        span: Span,
-        attr: &str,
-        expected: &'static str,
-        found: &str,
-    ) -> Self {
+    pub fn invalid_attr_value(span: Span, attr: &str, expected: &'static str, found: &str) -> Self {
         Self {
             span,
             kind: ErrorKind::InvalidAttrValue {
@@ -132,11 +123,7 @@ impl Error {
         }
     }
 
-    pub fn missing_required_attr(
-        span: Span,
-        attr: &'static str,
-        context: &'static str,
-    ) -> Self {
+    pub fn missing_required_attr(span: Span, attr: &'static str, context: &'static str) -> Self {
         Self {
             span,
             kind: ErrorKind::MissingRequiredAttr { attr, context },
@@ -197,22 +184,32 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ErrorKind::*;
         match &self.kind {
-            MissingWrapper { expected, found, suggestion } => write!(
+            MissingWrapper {
+                expected,
+                found,
+                suggestion,
+            } => write!(
                 f,
                 "expected `{}` wrapper, found `{}`\n  = help: {}",
                 expected, found, suggestion
             ),
-            EmptyGenericArgs { wrapper } => write!(
-                f,
-                "`{}` requires at least one type argument",
-                wrapper
-            ),
-            UnsupportedType { name, reason, suggestion } => write!(
+            EmptyGenericArgs { wrapper } => {
+                write!(f, "`{}` requires at least one type argument", wrapper)
+            }
+            UnsupportedType {
+                name,
+                reason,
+                suggestion,
+            } => write!(
                 f,
                 "unsupported type `{}`\n  = note: {}\n  = help: {}",
                 name, reason, suggestion
             ),
-            InvalidAttrValue { attr, expected, found } => write!(
+            InvalidAttrValue {
+                attr,
+                expected,
+                found,
+            } => write!(
                 f,
                 "invalid value for `{}`\n  = expected: {}\n  = found: {}",
                 attr, expected, found
@@ -222,7 +219,11 @@ impl std::fmt::Display for Error {
                 "missing required attribute `{}`\n  = help: {}",
                 attr, context
             ),
-            ConflictingAttrs { first, second, suggestion } => write!(
+            ConflictingAttrs {
+                first,
+                second,
+                suggestion,
+            } => write!(
                 f,
                 "conflicting attributes `{}` and `{}`\n  = help: {}",
                 first, second, suggestion
@@ -302,7 +303,8 @@ mod tests {
 
     #[test]
     fn missing_required_attr_message() {
-        let err = Error::missing_required_attr(span(), "method", "add `method = \"GET\"` to #[orpc]");
+        let err =
+            Error::missing_required_attr(span(), "method", "add `method = \"GET\"` to #[orpc]");
         let msg = err.to_string();
         assert!(msg.contains("missing required attribute `method`"));
         assert!(msg.contains("help:"));
@@ -310,12 +312,12 @@ mod tests {
 
     #[test]
     fn unknown_key_message() {
-        let err = Error::unknown_key(span(), "routes", &["method", "path", "stream_event"]);
+        let err = Error::unknown_key(span(), "routes", &["method", "path", "data"]);
         let msg = err.to_string();
         assert!(msg.contains("unknown key `routes`"));
         assert!(msg.contains("method"));
         assert!(msg.contains("path"));
-        assert!(msg.contains("stream_event"));
+        assert!(msg.contains("data"));
     }
 
     #[test]

@@ -1,15 +1,22 @@
 [package]
 name = "rorpc-macros"
-version = "0.1.0"
-edition = "2021"
-authors = ["rorpc contributors"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Procedural macros for rorpc — thin bridge over rorpc-parse"
-license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/rorpc-macros"
+readme = "README.md"
+keywords = ["rpc", "axum", "codegen", "typescript", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers", "web-programming"]
+include = ["src/**/*", "README.md", "Cargo.toml"]
 
 [lib]
 proc-macro = true
 
 [dependencies]
-rorpc-parse = { workspace = true }
+rorpc-parse = { path = "../rorpc-parse", version = "0.1.0" }
 syn = { version = "2.0", features = ["full"] }
 proc-macro2 = "1.0"

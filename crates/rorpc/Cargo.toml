@@ -1,17 +1,21 @@
 [package]
 name = "rorpc"
-version = "0.1.0"
-edition = "2021"
-authors = ["rorpc contributors"]
-license = "MIT OR Apache-2.0"
-description = "rorpc — Rust oRPC: annotation-driven Axum handlers with automatic TypeScript contract generation"
-repository = "https://github.com/yourusername/rorpc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Rust oRPC — annotation-driven Axum handlers with automatic TypeScript contract generation"
+documentation = "https://docs.rs/rorpc"
+readme = "README.md"
 keywords = ["rpc", "axum", "typescript", "codegen", "zod"]
 categories = ["web-programming", "api-bindings"]
+include = ["src/**/*", "README.md", "Cargo.toml"]
 
 [dependencies]
-rorpc-macros = { workspace = true }
-rorpc-parse = { workspace = true }
+rorpc-macros = { path = "../rorpc-macros", version = "0.1.0" }
+rorpc-parse = { path = "../rorpc-parse", version = "0.1.0" }
 inventory = "0.3"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }

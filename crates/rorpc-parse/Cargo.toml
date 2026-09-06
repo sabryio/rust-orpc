@@ -1,10 +1,17 @@
 [package]
 name = "rorpc-parse"
-version = "0.1.0"
-edition = "2024"
-authors = ["rorpc contributors"]
-description = "AST parsing utilities and code generation for rorpc proc macros"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "AST parsing utilities and code generation internals for rorpc proc macros"
+documentation = "https://docs.rs/rorpc-parse"
+readme = "README.md"
+keywords = ["rpc", "axum", "codegen", "typescript", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers", "web-programming"]
+include = ["src/**/*", "README.md", "Cargo.toml"]
 
 [dependencies]
 syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
